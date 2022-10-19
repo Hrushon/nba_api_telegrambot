@@ -9,3 +9,6 @@ BOT_TOKEN = 5371289148:AAHgpsuBitiw6T-U9KFt05IVDLoskbBAFys # Токен бота
 
 response = requests.get(ENDPOINT)
 response = response.json()
+
+bot = telegram.Bot(token=BOT_TOKEN) # создание экземпляра бота
+bot.send_message(CHAT_ID, text) # пример отправки сообщения
