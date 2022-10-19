@@ -1,5 +1,6 @@
 """Телеграм-бот для просмотра статистики NBA."""
 import requests
+import telegram # класс Bot() отправляет сообщения, а класс Updater() получает и обрабатывает сообщения извне
 
 
 ENDPOINT = 'https://www.balldontlie.io/api/v1/'
