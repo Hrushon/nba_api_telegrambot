@@ -11,4 +11,5 @@ response = requests.get(ENDPOINT)
 response = response.json()
 
 bot = telegram.Bot(token=BOT_TOKEN) # создание экземпляра бота
+updater = tekegram.ext.Updater(token=BOT_TOKEN) # создание экземпляра для проверки входящих 
 bot.send_message(CHAT_ID, text) # пример отправки сообщения
