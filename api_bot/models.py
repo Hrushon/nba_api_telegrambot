@@ -72,6 +72,18 @@ def player(response):
         first_name, last_name, CONFERENCE_KIND[conference], team, CITIES_DICT[city], PLAYERS_ROLES[position], height, weight
     )
     return player_str
-    
 
 
+def team(response):
+    """Модель для профиля команды."""
+    id = response.get('id')
+    abbreviation = response.get('abbreviation')
+    city = response.get('city')
+    conference = response.get('conference')
+    division = response.get('division')
+    full_name = response.get('full_name')
+    name = response.get('name')
+    team_str = '{} или просто {}.\nКоманда из города {} участвует в играх {} конференции НБА.\nАббревиатура команды - {}.\nID - {}.'.format(
+        full_name, name, CITIES_DICT[city], CONFERENCE_KIND[conference], abbreviation, id
+    )
+    return team_str
