@@ -18,34 +18,34 @@ CONFERENCE_KIND = {
 CITIES_DICT = {
     'Los Angeles': 'Лос-Анджелес',
     'New York': 'Нью-Йорк',
-    'Atlanta':,
-    'Boston':,
-    'Brooklyn':,
-    'Charlotte':,
-    'Chicago':,
-    'Cleveland':,
-    'Dallas':,
-    'Denver':,
-    'Detroit':,
-    'Golden State':,
-    'Houston':,
-    'Indiana':,
+    'Atlanta': 'Атланта',
+    'Boston': 'Бостон',
+    'Brooklyn': 'Нью-Йорк',
+    'Charlotte': 'Шарлотт',
+    'Chicago': 'Чикаго',
+    'Cleveland': 'Кливленд',
+    'Dallas': 'Даллас',
+    'Denver': 'Денвер',
+    'Detroit': 'Детройт',
+    'Golden State': 'Сан-Франциско',
+    'Houston': 'Хьюстон',
+    'Indiana': 'Индианаполис',
     'LA': 'Лос-Анджелес',
-    'Memphis':,
-    'Miami':,
-    'Milwaukee':,
-    'Minnesota':,
-    'New Orleans':,
-    'Oklahoma City':,
-    'Orlando':,
-    'Philadelphia':,
-    'Phoenix':,
-    'Portland':,
-    'Sacramento':,
-    'San Antonio':,
-    'Toronto':,
-    'Utah':,
-    'Washington':,
+    'Memphis': 'Мемфис',
+    'Miami': 'Майами',
+    'Milwaukee': 'Милуоки',
+    'Minnesota': 'Миннеаполис',
+    'New Orleans': ' Новый Орлеан',
+    'Oklahoma City': 'Оклахома-Сити',
+    'Orlando': 'Орландо',
+    'Philadelphia': 'Филадельфия',
+    'Phoenix': 'Финикс',
+    'Portland': 'Портленд',
+    'Sacramento': 'Сакраменто',
+    'San Antonio': 'Сан-Антонио',
+    'Toronto': 'Торонто',
+    'Utah': 'Юта',
+    'Washington': 'Вашингтон',
 }
 
 
@@ -68,7 +68,7 @@ def player(response):
     team = response.get('team').get('full_name')
     city = response.get('team').get('city')
     conference = response.get('team').get('conference')
-    player_str = '{} {}.\nИграет (или играл) в {} конференции за команду {} из города {} на позиции {}.\n{}\n{}'.format(
+    player_str = '{} {}.\nИграет (или играл перед окончанием карьеры) в {} конференции НБА за команду {} (г. {}) на позиции {}.\n{}\n{}'.format(
         first_name, last_name, CONFERENCE_KIND[conference], team, CITIES_DICT[city], PLAYERS_ROLES[position], height, weight
     )
     return player_str
