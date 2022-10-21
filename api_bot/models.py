@@ -83,7 +83,7 @@ def player(response):
         CONFERENCE_KIND.get(conference, conference),
         team,
         CITIES_DICT.get(city, city),
-        PLAYERS_ROLES.get(position, position),
+        PLAYERS_ROLES.get(position, position or '(нет данных)'),
         height,
         weight
     )
