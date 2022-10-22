@@ -7,14 +7,14 @@ POUND_COEFF = 0.45
 PERC_COEFF = 100
 
 PLAYERS_ROLES = {
-    'G': 'защитника',
-    'F': 'форварда',
-    'C': 'центрового'
+    'G': 'защитник',
+    'F': 'форвард',
+    'C': 'центровой'
 }
 
 CONFERENCE_KIND = {
-    'West': 'западной',
-    'East': 'восточной'
+    'West': 'Западной',
+    'East': 'Восточной'
 }
 
 CITIES_DICT = {
@@ -50,6 +50,15 @@ CITIES_DICT = {
     'Washington': 'Вашингтон',
 }
 
+DIVISION_DICT = {
+    'Atlantic': 'Атлантический',
+    'Northwest': 'Северо-Западный',
+    'Pacific': 'Тихоокеанский',
+    'Central': 'Центральный',
+    'Southwest': 'Юго-Западный',
+    'Southeast': 'Юго-Восточный'
+}
+
 
 def player(response):
     """Модель для профиля игрока."""
@@ -58,39 +67,36 @@ def player(response):
     last_name = response.get('last_name')
     position = response.get('position')
     height = weight = ''
-    if response.get('height_feet') is not None:
+    if response.get('height_feet'):
         feet = response.get('height_feet')
         inches = response.get('height_inches')
         height_str = int(feet * FOOT_COEFF + inches * INCH_COEFF)
         height = 'Рост: {} см.'.format(height_str)
-    if response.get('weight_pounds') is not None:
+    if response.get('weight_pounds'):
         pounds = response.get('weight_pounds')
         weight_str = int(pounds * POUND_COEFF)
         weight = 'Вес: {} кг.'.format(weight_str)
-    team = response.get('team').get('full_name')
-    city = response.get('team').get('city')
-    conference = response.get('team').get('conference')
+    team = team_max(response.get('team'))
     player_str = (
-        '{} {}.\n'
-        'ID - {}.\n'
-        'Выступает (или выступал перед окончанием карьеры) '
-        'в {} конференции НБА за команду {} (г. {}) на позиции {}.\n'
-        '{}\n{}'
+        '{} {}.\n\n'
+        'ID игрока - {}.\n'
+        'Амплуа: {}.\n'
+        '{}\n{}\n'
+        'Выступает (или выступал перед окончанием карьеры) за команду:\n'
+        '{}'
     ).format(
         first_name,
         last_name,
         id,
-        CONFERENCE_KIND.get(conference, conference),
-        team,
-        CITIES_DICT.get(city, city),
         PLAYERS_ROLES.get(position, position or '(нет данных)'),
         height,
-        weight
+        weight,
+        team
     )
     return player_str
 
 
-def team(response):
+def team_max(response):
     """Модель для профиля команды."""
     id = response.get('id')
     abbreviation = response.get('abbreviation')
@@ -100,19 +106,43 @@ def team(response):
     full_name = response.get('full_name')
     name = response.get('name')
     team_str = (
-        '{} или просто {}.\n'
-        'Команда из города {} участвует в играх {} конференции НБА.\n'
+        '{} или просто {} из города {}.\n'
+        'ID команды - {}.\n'
         'Аббревиатура команды - {}.\n'
-        'Дивизион - {}.'
-        'ID - {}.'
+        '{} дивизион {} конференции NBA.\n'
     ).format(
         full_name,
         name,
         CITIES_DICT.get(city, city),
-        CONFERENCE_KIND.get(conference, conference),
+        id,
         abbreviation,
-        division,
-        id
+        DIVISION_DICT.get(division),
+        CONFERENCE_KIND.get(conference, conference)
+    )
+    return team_str
+
+
+def team_min(response):
+    """Модель для профиля команды в мини-варианте."""
+    id = response.get('id')
+    abbreviation = response.get('abbreviation')
+    city = response.get('city')
+    conference = response.get('conference')
+    division = response.get('division')
+    full_name = response.get('full_name')
+    team_str = (
+        'ID - {}.\n'
+        '{} ({}).\n'
+        'Город {}.\n'
+        '{} дивизион {} конференции.\n'
+        '=   =   =   =   =   ='
+    ).format(
+        id,
+        full_name,
+        abbreviation,
+        CITIES_DICT.get(city, city),
+        DIVISION_DICT.get(division),
+        CONFERENCE_KIND.get(conference, conference)
     )
     return team_str
 
