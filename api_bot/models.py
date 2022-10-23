@@ -1,4 +1,5 @@
 """Модели для человекочитаемого вывода информации в ответ на запрос."""
+import requests
 
 
 FOOT_COEFF = 30.48
@@ -59,6 +60,9 @@ DIVISION_DICT = {
     'Southeast': 'Юго-Восточный'
 }
 
+response = requests.get('https://www.balldontlie.io/api/v1/teams')
+teams_list = response.json().get('data')
+
 
 def player(response):
     """Модель для профиля игрока."""
@@ -78,8 +82,8 @@ def player(response):
         weight = 'Вес: {} кг.'.format(weight_str)
     team = team_max(response.get('team'))
     player_str = (
-        '{} {}.\n\n'
-        'ID игрока - {}.\n'
+        '*{} {}*.\n\n'
+        '_ID игрока - {}_.\n'
         'Амплуа: {}.\n'
         '{}\n{}\n'
         'Выступает (или выступал перед окончанием карьеры) за команду:\n'
@@ -106,8 +110,8 @@ def team_max(response):
     full_name = response.get('full_name')
     name = response.get('name')
     team_str = (
-        '{} или просто {} из города {}.\n'
-        'ID команды - {}.\n'
+        '*{}* или просто *{}* из города {}.\n'
+        '_ID команды - {}_.\n'
         'Аббревиатура команды - {}.\n'
         '{} дивизион {} конференции NBA.\n'
     ).format(
@@ -131,11 +135,11 @@ def team_min(response):
     division = response.get('division')
     full_name = response.get('full_name')
     team_str = (
-        'ID - {}.\n'
-        '{} ({}).\n'
+        '_ID - {}_.\n'
+        '*{}* ({}).\n'
         'Город {}.\n'
         '{} дивизион {} конференции.\n'
-        '=   =   =   =   =   ='
+        '------------------------------'
     ).format(
         id,
         full_name,
@@ -155,13 +159,19 @@ def statistics(response):
     ast = response.get('ast')
     blk = response.get('blk')
     dreb = response.get('dreb')
-    fg3_pct = (response.get('fg3_pct')) * PERC_COEFF
+    fg3_pct = (response.get('fg3_pct'))
+    if 1 > fg3_pct < 0:
+        fg3_pct = (response.get('fg3_pct')) * PERC_COEFF
     fg3a = response.get('fg3a')
     fg3m = response.get('fg3m')
-    fg_pct = (response.get('fg_pct')) * PERC_COEFF
+    fg_pct = (response.get('fg_pct'))
+    if 1 > fg_pct < 0:
+        fg_pct = (response.get('fg_pct')) * PERC_COEFF
     fga = response.get('fga')
     fgm = response.get('fgm')
-    ft_pct = (response.get('ft_pct')) * PERC_COEFF
+    ft_pct = (response.get('ft_pct'))
+    if 1 > ft_pct < 0:
+        ft_pct = (response.get('ft_pct')) * PERC_COEFF
     fta = response.get('fta')
     ftm = response.get('ftm')
     min = response.get('min')
@@ -174,49 +184,57 @@ def statistics(response):
     if season is not None:
         season = '{}-{}'.format(season, season + 1)
     statistics_str = (
-        'Сезон: {}.\n'
-        'Сыгранных игр в сезоне: {}.\n'
+        'Сезон: *{}*.\n'
+        'Сыгранных игр в сезоне: *{}*.\n'
         'Средние данные за сезон по показателям:\n'
-        '+++ набранные очки: {}\n'
-        '+++ сыгранные минуты: {}\n'
-        '+++ броски с игры: {} из них результативных: {}\n'
-        '+++ точность бросков с игры: {:.1f} %\n'
-        '+++ 3-очковые броски: {} из них результативных: {}\n'
-        '+++ точность 3-очковых бросков: {:.1f} %\n'
-        '+++ штрафные броски: {} из них результативных: {}\n'
-        '+++ точность штрафных бросков: {:.1f} %\n'
-        '+++ подборы: {}, из них в нападении - {} и в защите - {}\n'
-        '+++ результативные передачи: {}\n'
-        '+++ перехваты: {}\n'
-        '+++ блоки: {}\n'
-        '+++ потери мяча: {}\n'
-        '+++ персональные замечания: {}\n'
+        '+ сыгранные минуты: *{}*\n'
+        '+ набранные очки: *{}*\n'
+        '+ броски с игры: *{}* из них результативных: *{}*\n'
+        '++ точность бросков с игры: *{:.1f}* %\n'
+        '+ 3-очковые броски: *{}* из них результативных: *{}*\n'
+        '++ точность 3-очковых бросков: *{:.1f}* %\n'
+        '+ штрафные броски: *{}* из них результативных: *{}*\n'
+        '++ точность штрафных бросков: *{:.1f}* %\n'
+        '+ подборы: *{}*, из них в нападении - *{}* и в защите - *{}*\n'
+        '+ результативные передачи: *{}*\n'
+        '+ перехваты: *{}*\n'
+        '+ блоки: *{}*\n'
+        '- потери мяча: *{}*\n'
+        '- персональные замечания: *{}*\n'
     ).format(
-        season, games_played, pts, min, fga, fgm, fg_pct, fg3a,
+        season, games_played, min, pts, fga, fgm, fg_pct, fg3a,
         fg3m, fg3_pct, fta, ftm, ft_pct, reb, oreb, dreb, ast,
         stl, blk, turnover, pf
     )
     return statistics_str
 
 
-def statistics_game(response):
+def statistics_per_game(response):
     """Модель для сезонной статистики по играм."""
     id = response.get('id')
     ast = response.get('ast')
     blk = response.get('blk')
     dreb = response.get('dreb')
-    fg3_pct = (response.get('fg3_pct')) * PERC_COEFF
+    fg3_pct = (response.get('fg3_pct'))
+    if 1 > fg3_pct < 0:
+        fg3_pct = (response.get('fg3_pct')) * PERC_COEFF
     fg3a = response.get('fg3a')
     fg3m = response.get('fg3m')
-    fg_pct = (response.get('fg_pct')) * PERC_COEFF
+    fg_pct = (response.get('fg_pct'))
+    if 1 > fg_pct < 0:
+        fg_pct = (response.get('fg_pct')) * PERC_COEFF
     fga = response.get('fga')
     fgm = response.get('fgm')
-    ft_pct = (response.get('ft_pct')) * PERC_COEFF
+    ft_pct = (response.get('ft_pct'))
+    if 1 > ft_pct < 0:
+        ft_pct = (response.get('ft_pct')) * PERC_COEFF
     fta = response.get('fta')
     ftm = response.get('ftm')
     game = response.get('game')
     game_id = game.get('id')
-    game_date = game.get('date')
+    game_date = game.get('date').split('T')[0]
+    game_date = game_date.split('-')
+    game_date = '-'.join([game_date[2], game_date[1], game_date[0]])
     game_home_team_id = game.get('home_team_id')
     game_home_team_score = game.get('home_team_score')
     game_season = game.get('season')
@@ -245,35 +263,37 @@ def statistics_game(response):
     turnover = response.get('turnover')
     if game_season is not None:
         game_season = '{}-{}'.format(game_season, game_season + 1)
+    game_home_team_name = teams_list[
+        game_home_team_id - 1
+    ].get('full_name')
+    game_visitor_team_name = teams_list[
+        game_visitor_team_id - 1
+    ].get('full_name')
     statistics_game_str = (
-        '{} {}\n'
-        'ID игрока: {}\n'
         'Сезон: {}\n'
         '{}\n'
         '{} против {}\n'
         'Счёт: {}:{}\n'
         'Средняя статистика за игру по показателям:\n'
-        '+++ набранные очки: {}\n'
-        '+++ сыгранные минуты: {}\n'
-        '+++ броски с игры: {} из них результативных: {}\n'
-        '+++ точность бросков с игры: {:.1f} %\n'
-        '+++ 3-очковые броски: {} из них результативных: {}\n'
-        '+++ точность 3-очковых бросков: {:.1f} %\n'
-        '+++ штрафные броски: {} из них результативных: {}\n'
-        '+++ точность штрафных бросков: {:.1f} %\n'
-        '+++ подборы: {}, из них в нападении - {} и в защите - {}\n'
-        '+++ результативные передачи: {}\n'
-        '+++ перехваты: {}\n'
-        '+++ блоки: {}\n'
-        '+++ потери мяча: {}\n'
-        '+++ персональные замечания: {}\n'
+        '+ сыгранные минуты: *{}*\n'
+        '+ набранные очки: *{}*\n'
+        '+ броски с игры: *{}* из них результативных: *{}*\n'
+        '++ точность бросков с игры: *{:.1f}* %\n'
+        '+ 3-очковые броски: *{}* из них результативных: *{}*\n'
+        '++ точность 3-очковых бросков: *{:.1f}* %\n'
+        '+ штрафные броски: *{}* из них результативных: *{}*\n'
+        '++ точность штрафных бросков: *{:.1f}* %\n'
+        '+ подборы: *{}*, из них в нападении - *{}* и в защите - *{}*\n'
+        '+ результативные передачи: *{}*\n'
+        '+ перехваты: *{}*\n'
+        '+ блоки: *{}*\n'
+        '- потери мяча: *{}*\n'
+        '- персональные замечания: *{}*\n'
     ).format(
-        player_first_name, player_last_name,
-        player_id,
         game_season, game_date,
-        'Команда 1', 'Команда 2', 
+        game_home_team_name, game_visitor_team_name, 
         game_home_team_score, game_visitor_team_score,
-        pts, min, fga, fgm, fg_pct, fg3a,
+        min, pts, fga, fgm, fg_pct, fg3a,
         fg3m, fg3_pct, fta, ftm, ft_pct,
         reb, oreb, dreb, ast,
         stl, blk, turnover, pf

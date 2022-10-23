@@ -1,12 +1,7 @@
-import re
+import requests
 
+ENDPOINT = 'https://www.balldontlie.io/api/v1/'
 
-text = '1956'
+url = f'{ENDPOINT}/teams'
 
-
-print(re.match(r'^[\d+]{4}$', text))
-
-if re.match(r'^[\d+]{4}$', text) is None:
-    print('None')
-else:
-    print('Yes')
+response = requests.get(url)
