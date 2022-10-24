@@ -1,11 +1,14 @@
 """Модели для человекочитаемого вывода информации в ответ на запрос."""
 import requests
+from datetime import datetime as DT
+import pytz
+
 
 
 FOOT_COEFF = 30.48
 INCH_COEFF = 2.54
-POUND_COEFF = 0.45
 PERC_COEFF = 100
+POUND_COEFF = 0.45
 
 PLAYERS_ROLES = {
     'G': 'защитник',
@@ -59,6 +62,9 @@ DIVISION_DICT = {
     'Southwest': 'Юго-Западный',
     'Southeast': 'Юго-Восточный'
 }
+
+TZ1 = pytz.timezone('US/Eastern')
+TZ2 = pytz.timezone('Europe/Moscow')
 
 response = requests.get('https://www.balldontlie.io/api/v1/teams')
 teams_list = response.json().get('data')
@@ -299,3 +305,58 @@ def statistics_per_game(response):
         stl, blk, turnover, pf
     )
     return statistics_game_str
+
+
+def game_view(response):
+    """Модель для представления отдельной игры."""
+    id = response.get('id')
+    date = response.get('date').split('T')[0]
+    date = date.split('-')
+    date = '-'.join([date[2], date[1], date[0]])
+    home_team_score = response.get('home_team_score')
+    visitor_team_score = response.get('visitor_team_score')
+    season = response.get('season')
+    period = response.get('period')
+    status = response.get('status')
+    time = response.get('time')
+    date_time = date + ' ' + status
+    postseason = response.get('postseasom')
+    game_type = 'Регулярный чемпионат'
+    if postseason:
+        game_type = 'Игры плей-офф'
+    home_team = response.get('home_team').get('fullname')
+    visitor_team =  response.get('visitor_team').get('fullname')
+    if period == 0:
+        time = TZ1.localize(
+            DT.strptime(date_time, "%d-%m-%Y %I:%M %p")
+        ).astimezone(TZ2).strftime("%d-%m-%Y %H:%M")
+        time = time.split()
+        status_view = (
+            'Начало игры {} в {} мск времени.\n'.format(time[0], time[1])
+        )
+    elif status == 'Final':
+        status_view = (
+            'Дата {}.\nИгра окончена.\n'.format(date)
+        )
+    elif status == 'Halftime':
+        status_view = (
+            'Большой перерыв.\n'
+        )
+    else:
+        status_view = (
+            'Идёт {}-ый период.\nВремя игры в периоде {}.\n'.format(status[:1], time)
+        )
+
+    game = (
+        'Сезон: {}\n'
+        '{} против {}\n'
+        '{}\n'
+        '{}\n'
+        'Счёт: {}:{}\n'
+    ).format(
+        season,
+        home_team, visitor_team, game_type,
+        status_view,
+        home_team_score, visitor_team_score,
+    )
+    return game

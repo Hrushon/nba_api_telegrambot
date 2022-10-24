@@ -74,9 +74,17 @@ def answer_hub(update, context):
     if text == 'В начало':
         control_panel[chat.id] = None
         return head_page(update, context)
-    if control_action is not None:
+    if control_action:
         if text == 'Следующие игры' or text == 'Предыдущие игры':
             return flipp_pages(update, context)
+        if control_action.get('games'):
+            if control_action.get('games')[-1] == 'preview':
+                if text == 'Все игры':
+                    control_panel[chat.id]['games'] = 'all_games'
+                    return preview_games(update, context)
+                if text == 'Игры плей-офф':
+                    control_panel[chat.id]['games'] = 'playoff_games'
+                    return preview_games(update, context)
         if control_action.get('statistics'):
             if control_action.get('statistics') == 'season':
                 return statistics_season(update, context)
@@ -121,6 +129,8 @@ def answer_hub(update, context):
         return pre_search_player(update, context)
     if text == 'Команды':
         return view_teams(update, context)
+    if text == 'Игры':
+        return preview_games(update, context)
     return head_page(update, context)
 
 
@@ -128,7 +138,7 @@ def wake_up(update, context):
     chat = update.effective_chat
     name = update.message.chat.first_name
     button = telegram.ReplyKeyboardMarkup(
-        [['Поиск игрока', 'Поиск команды'], ['Команды', 'Кнопка 4']],
+        [['Поиск игрока', 'Поиск команды'], ['Игры', 'Кнопка 4']],
         resize_keyboard=True
     )
     context.bot.send_message(
@@ -142,7 +152,7 @@ def head_page(update, context):
     chat = update.effective_chat
     name = update.message.chat.first_name
     button = telegram.ReplyKeyboardMarkup(
-        [['Поиск игрока', 'Поиск команды'], ['Команды', 'Кнопка 4']],
+        [['Поиск игрока', 'Поиск команды'], ['Игры', 'Кнопка 4']],
         resize_keyboard=True
     )
     context.bot.send_message(
@@ -283,8 +293,10 @@ def preview_statistics(
     chat = update.effective_chat
     button = telegram.ReplyKeyboardMarkup(
         [['Конкретная игра (по ID игры)'],
-        ['Все игры за определенный период', 'Игры плей-офф за определенный период'],
-        ['Все игры сезона', 'Игры плей-офф сезона'],
+        ['Все игры за определенный период'],
+        ['Игры плей-офф за определенный период'],
+        ['Все игры сезона'],
+        ['Игры плей-офф сезона'],
         ['В начало']],
         resize_keyboard=True
     )
@@ -305,8 +317,10 @@ def preview_statistics(
         )
     if gameid:
         button = telegram.ReplyKeyboardMarkup(
-            [['Все игры за определенный период', 'Игры плей-офф за определенный период'],
-            ['Все игры сезона', 'Игры плей-офф сезона'],
+            [['Все игры за определенный период'],
+            ['Игры плей-офф за определенный период'],
+            ['Все игры сезона'],
+            ['Игры плей-офф сезона'],
             ['В начало']],
             resize_keyboard=True
         )
@@ -317,8 +331,10 @@ def preview_statistics(
         control_panel[chat.id]['statistics'] = 'game_go'
     if allgame_period:
         button = telegram.ReplyKeyboardMarkup(
-            [['Конкретная игра (по ID игры)', 'Игры плей-офф за определенный период'],
-            ['Все игры сезона', 'Игры плей-офф сезона'],
+            [['Конкретная игра (по ID игры)'],
+            ['Игры плей-офф за определенный период'],
+            ['Все игры сезона'],
+            ['Игры плей-офф сезона'],
             ['В начало']],
             resize_keyboard=True
         )
@@ -333,8 +349,10 @@ def preview_statistics(
         control_panel[chat.id]['statistics'] = 'game_go'
     if playoff_period:
         button = telegram.ReplyKeyboardMarkup(
-            [['Конкретная игра (по ID игры)', 'Все игры за определенный период'],
-            ['Все игры сезона', 'Игры плей-офф сезона'],
+            [['Конкретная игра (по ID игры)'],
+            ['Все игры за определенный период'],
+            ['Все игры сезона'],
+            ['Игры плей-офф сезона'],
             ['В начало']],
             resize_keyboard=True
         )
@@ -349,8 +367,10 @@ def preview_statistics(
         control_panel[chat.id]['statistics'] = 'game_go'
     if allgame_season:
         button = telegram.ReplyKeyboardMarkup(
-            [['Конкретная игра (по ID игры)', 'Все игры за определенный период'],
-            ['Игры плей-офф за определенный период', 'Игры плей-офф сезона'],
+            [['Конкретная игра (по ID игры)'],
+            ['Все игры за определенный период'],
+            ['Игры плей-офф за определенный период'],
+            ['Игры плей-офф сезона'],
             ['В начало']],
             resize_keyboard=True
         )
@@ -364,8 +384,10 @@ def preview_statistics(
         control_panel[chat.id]['statistics'] = 'game_go'
     if playoff_season:
         button = telegram.ReplyKeyboardMarkup(
-            [['Конкретная игра (по ID игры)', 'Все игры за определенный период'],
-            ['Игры плей-офф за определенный период', 'Все игры сезона'],
+            [['Конкретная игра (по ID игры)'],
+            ['Все игры за определенный период'],
+            ['Игры плей-офф за определенный период'],
+            ['Все игры сезона'],
             ['В начало']],
             resize_keyboard=True
         )
@@ -421,8 +443,10 @@ def statistics_game(update, context):
     if response_list:
         button = telegram.ReplyKeyboardMarkup(
             [['Конкретная игра (по ID игры)'],
-            ['Все игры за определенный период', 'Игры плей-офф за определенный период'],
-            ['Все игры сезона', 'Игры плей-офф сезона'],
+            ['Все игры за определенный период'],
+            ['Игры плей-офф за определенный период'],
+            ['Все игры сезона'],
+            ['Игры плей-офф сезона'],
             ['В начало']],
             resize_keyboard=True
         )
@@ -515,6 +539,42 @@ def statistics_season(update, context):
         chat_id=chat.id,
         text='Статистики за данный период не найдено',
         reply_markup=button
+    )
+
+
+def preview_games(
+    update, context
+):
+    chat = update.effective_chat
+    if control_panel.get(chat.id) is None:
+        flag = {'games': ['preview']}
+        control_panel[chat.id] = flag
+        button = telegram.ReplyKeyboardMarkup(
+            [['Все игры'],
+            ['Игры плей-офф'],
+            ['В начало']],
+            resize_keyboard=True
+        )
+        text = (
+            'Что Вас интересует?'
+        )
+    else:
+        if control_panel.get(chat.id):
+            button = telegram.ReplyKeyboardMarkup(
+                [['Игры отдельной команды'],
+                ['Игры всех команд'],
+                ['В начало']],
+                resize_keyboard=True
+            )
+            text = (
+                'Уточните запрос.'
+            )
+        
+    context.bot.send_message(
+        chat_id=chat.id,
+        text=text,
+        reply_markup=button,
+        parse_mode = 'Markdown'
     )
 
 

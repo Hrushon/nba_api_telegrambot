@@ -1,7 +1,10 @@
-import requests
+    
+status = '1st Qtr'   
 
-ENDPOINT = 'https://www.balldontlie.io/api/v1/'
+time = '3:44'
+    
+status_view = (
+    'Идёт {}-ый период.\nВремя игры в периоде {}.\n'.format(status[:1], time)
+)
 
-url = f'{ENDPOINT}/teams'
-
-response = requests.get(url)
+print(status_view)
