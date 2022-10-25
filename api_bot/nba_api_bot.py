@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from telegram.ext import CommandHandler, Filters, MessageHandler, Updater
 
 from models import player, team_min, statistics, statistics_per_game
+from validator import validator
 
 
 load_dotenv()
@@ -20,6 +21,32 @@ ENDPOINT_PHOTO_SEARCH = 'https://imsea.herokuapp.com/api/1?q=nba_'
 
 ADMIN_ID = os.getenv('ADMIN_ID') # Айди аккаунта в телеграм
 BOT_TOKEN = os.getenv('BOT_TOKEN') # Токен бота в телеграм
+
+VIEW_GAMES = {
+    0: {
+        'answer': ['Только плей-офф', 'Все игры'],
+        'button' : [['Определенная команда'], ['Все команды'], ['Назад']],
+        'text': 'Вам интересны игры всех команд или какой-то конкретной?'
+    },
+    1: {
+        'answer': ['Определенная команда', 'Все команды'],
+        'button' : [['Сезон'], ['Временной период'], ['Назад']],
+        'text': 'За какой период Вам нужна информация?',
+        'additional': 'Ведите ID команды'
+    },
+    2: {
+        'answer': ['Сезон', 'Временной период'],
+        'button' : [['Начальная + конечная дата'], ['Конкретный день'], ['Назад']],
+        'text': 'За какой период Вам нужна информация?',
+        'additional': 'Ведите год сезона'
+    },
+    3: {
+        'answer': ['Начальная + конечная дата', 'Конкретный день'],
+        'button' : [['В начало'], ['Назад']],
+        'text': 'За какой период Вам нужна информация?',
+        'additional': 'Ведите год сезона'
+    },
+}
 
 STATX_GAME = {
     'gameid': [
@@ -129,7 +156,7 @@ def answer_hub(update, context):
         return pre_search_player(update, context)
     if text == 'Команды':
         return view_teams(update, context)
-    if text == 'Игры':
+    if text == 'Игры' or context.user_data.get('games') is not None:
         return preview_games(update, context)
     return head_page(update, context)
 
@@ -542,38 +569,49 @@ def statistics_season(update, context):
     )
 
 
-def preview_games(
-    update, context
-):
+def preview_games(update, context):
     chat = update.effective_chat
-    if control_panel.get(chat.id) is None:
-        flag = {'games': ['preview']}
-        control_panel[chat.id] = flag
-        button = telegram.ReplyKeyboardMarkup(
-            [['Все игры'],
-            ['Игры плей-офф'],
-            ['В начало']],
-            resize_keyboard=True
-        )
-        text = (
-            'Что Вас интересует?'
-        )
+    answer = (update['message']['text']).rstrip()
+    flag_dict = context.user_data.get('games')
+    button = [['Назад']]
+    text = ''
+
+    if flag_dict is not None:
+        count = len(flag_dict)
+        print(count)
+        print(context.user_data)
+
+        if answer == VIEW_GAMES.get(count).get('answer')[0]:
+            text = VIEW_GAMES.get(count).get('additional')
+            if text is None:
+                context.user_data.get('games').append(True)
+
+        elif answer == VIEW_GAMES.get(count).get('answer')[1]:
+            context.user_data.get('games').append(False)
+
+        elif validator(update, context):
+            context.user_data.get('games').append(answer)
+
+        else:
+            text = 'Попробуйте уточнить запрос. По Вашему запросу ничего не найдено.'
+
+        if not text:
+            text = VIEW_GAMES.get(count).get('text')
+            button = VIEW_GAMES.get(count).get('button')
+
+
     else:
-        if control_panel.get(chat.id):
-            button = telegram.ReplyKeyboardMarkup(
-                [['Игры отдельной команды'],
-                ['Игры всех команд'],
-                ['В начало']],
-                resize_keyboard=True
-            )
-            text = (
-                'Уточните запрос.'
-            )
-        
-    context.bot.send_message(
+        button = [['Только плей-офф'], ['Все игры'], ['Назад']]
+        text = 'Выберите тип игры'
+        context.user_data['games'] = []
+
+    return context.bot.send_message(
         chat_id=chat.id,
         text=text,
-        reply_markup=button,
+        reply_markup=telegram.ReplyKeyboardMarkup(
+            button,
+            resize_keyboard=True
+        ),
         parse_mode = 'Markdown'
     )
 

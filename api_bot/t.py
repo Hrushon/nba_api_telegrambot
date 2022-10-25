@@ -1,10 +1,7 @@
-    
-status = '1st Qtr'   
+ffff = 'kkjlk'
 
-time = '3:44'
-    
-status_view = (
-    'Идёт {}-ый период.\nВремя игры в периоде {}.\n'.format(status[:1], time)
-)
 
-print(status_view)
+if  not ffff:
+    print(True)
+print(False)
+
