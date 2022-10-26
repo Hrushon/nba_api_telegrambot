@@ -315,17 +315,18 @@ def game_view(response):
     date = '-'.join([date[2], date[1], date[0]])
     home_team_score = response.get('home_team_score')
     visitor_team_score = response.get('visitor_team_score')
-    season = response.get('season')
+    season = int(response.get('season'))
+    season = str(season) + '-' + str(season + 1)
     period = response.get('period')
     status = response.get('status')
     time = response.get('time')
     date_time = date + ' ' + status
-    postseason = response.get('postseasom')
+    postseason = response.get('postseason')
     game_type = 'Регулярный чемпионат'
     if postseason:
         game_type = 'Игры плей-офф'
-    home_team = response.get('home_team').get('fullname')
-    visitor_team =  response.get('visitor_team').get('fullname')
+    home_team = response.get('home_team').get('full_name')
+    visitor_team =  response.get('visitor_team').get('full_name')
     if period == 0:
         time = TZ1.localize(
             DT.strptime(date_time, "%d-%m-%Y %I:%M %p")

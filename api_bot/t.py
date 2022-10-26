@@ -1,7 +1,7 @@
-ffff = 'kkjlk'
+ttt = ['hello', 'world']
+
+a, b = *ttt, 
 
 
-if  not ffff:
-    print(True)
-print(False)
+print(b)
 

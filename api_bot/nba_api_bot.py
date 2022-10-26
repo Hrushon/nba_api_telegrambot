@@ -10,7 +10,7 @@ import telegram # класс Bot() отправляет сообщения, а �
 from dotenv import load_dotenv
 from telegram.ext import CommandHandler, Filters, MessageHandler, Updater
 
-from models import player, team_min, statistics, statistics_per_game
+from models import game_view, player, team_min, statistics, statistics_per_game
 from validator import validator
 
 
@@ -41,11 +41,14 @@ VIEW_GAMES = {
         'additional': 'Ведите год сезона'
     },
     3: {
-        'answer': ['Начальная + конечная дата', 'Конкретный день'],
+        'answer': ['Конкретный день', 'Начальная + конечная дата'],
         'button' : [['В начало'], ['Назад']],
-        'text': 'За какой период Вам нужна информация?',
-        'additional': 'Ведите год сезона'
+        'text': 'Введите дату в формате дд-мм-гггг, для периода - дд-мм-гггг дд-мм-гггг'
     },
+    4: {
+        'answer': ['', ''],
+        'button' : [['В начало'], ['Назад']]
+    }
 }
 
 STATX_GAME = {
@@ -165,7 +168,7 @@ def wake_up(update, context):
     chat = update.effective_chat
     name = update.message.chat.first_name
     button = telegram.ReplyKeyboardMarkup(
-        [['Поиск игрока', 'Поиск команды'], ['Игры', 'Кнопка 4']],
+        [['Поиск игрока', 'Команды'], ['Игры', 'Кнопка 4']],
         resize_keyboard=True
     )
     context.bot.send_message(
@@ -179,7 +182,7 @@ def head_page(update, context):
     chat = update.effective_chat
     name = update.message.chat.first_name
     button = telegram.ReplyKeyboardMarkup(
-        [['Поиск игрока', 'Поиск команды'], ['Игры', 'Кнопка 4']],
+        [['Поиск игрока', 'Команды'], ['Игры', 'Кнопка 4']],
         resize_keyboard=True
     )
     context.bot.send_message(
@@ -535,7 +538,7 @@ def statistics_season(update, context):
         )
     player_id = control_panel.get(chat.id).get('player_id')
     response = requests.get(
-        '{}/season_averages?season={}&player_ids[]={}'.format(
+        '{}season_averages?season={}&player_ids[]={}'.format(
             ENDPOINT, text, player_id
         )
     )
@@ -591,6 +594,8 @@ def preview_games(update, context):
 
         elif validator(update, context):
             context.user_data.get('games').append(answer)
+            if len(context.user_data.get('games')) in (3, 5):
+                return view_games(update, context)
 
         else:
             text = 'Попробуйте уточнить запрос. По Вашему запросу ничего не найдено.'
@@ -613,6 +618,53 @@ def preview_games(update, context):
             resize_keyboard=True
         ),
         parse_mode = 'Markdown'
+    )
+
+
+def view_games(update, context):
+    chat = update.effective_chat
+    button = telegram.ReplyKeyboardMarkup(
+        [['В начало']],
+        resize_keyboard=True
+    )
+    user_data = context.user_data.get('games')
+    playoff, team_id, season = user_data[0], user_data[1], user_data[2]
+    final_url = f'{ENDPOINT}games?per_page=5&postseason={playoff}'
+    
+    if team_id:
+        final_url += f'&team_ids[]={team_id}'
+    if season:
+        final_url += f'&seasons[]={season}'
+
+
+    if not isinstance(season, str):
+        if not user_data[3]:
+            user_data = (user_data[4]).split(' ')
+            start_date, end_date = *user_data,
+            final_url += f'&start_date={start_date}&end_date={end_date}'
+        else:
+            date = user_data[4]
+            final_url += f'&dates[]={date}'
+
+
+    response = requests.get(final_url)
+    final_url = response.url
+    print(final_url)
+    response = response.json()
+    response_list = response.get('data')
+    games_count = response.get('meta').get('total_count')
+    if games_count and response_list:
+        list_games = [game_view(i) for i in response_list]
+
+    return context.bot.send_message(
+        chat_id=chat.id,
+        text=(
+            'Список игр:\nВсего игр: {}\n{}'.format(
+                games_count, ('\n'.join(list_games))
+            )
+        ),
+        reply_markup=button,
+        parse_mode='Markdown'
     )
 
 
