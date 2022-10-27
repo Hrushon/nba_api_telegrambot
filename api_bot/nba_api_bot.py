@@ -38,12 +38,70 @@ VIEW_GAMES = {
         'answer': ['Сезон', 'Временной период'],
         'button' : [['Начальная + конечная дата'], ['Конкретный день'], ['Назад']],
         'text': 'За какой период Вам нужна информация?',
-        'additional': 'Ведите год сезона'
+        'additional': 'Введите сезон, в пределах которого '
+                      'Вас интересует статистика игрока.\n'
+                      'К примеру, если требуется статистика игрока за сезон 2016-2017 '
+                      'ввести нужно - "*2016*".\n'
+                      'Запрос должен содержать только четыре цифры.'
     },
     3: {
         'answer': ['Конкретный день', 'Начальная + конечная дата'],
         'button' : [['В начало'], ['Назад']],
-        'text': 'Введите дату в формате дд-мм-гггг, для периода - дд-мм-гггг дд-мм-гггг'
+        'text': 'Ограничьте период в следующем формате:\n'
+                'Для конкретного дня формат такой: _дд-мм-гггг_\n'
+                'Для периода с начальной и конечной датой:\n'
+                '_дд-мм-гггг дд-мм-гггг_\n'
+                'К примеру, если Вас интересует период с 1 января 2019 года '
+                'по 1 марта 2019 года необходимо ввести следующее:\n'
+                '*01-01-2019 01-03-2019*\n'
+                'А если интересен матч за 1 июля 2021 года, то введите '
+                '*01-07-2021*\n'
+                'Будьте внимательны при вводе дат.'
+    },
+    4: {
+        'answer': ['', ''],
+        'button' : [['В начало'], ['Назад']]
+    }
+}
+
+VIEW_STATIX = {
+    0: {
+        'answer': ['Да', 'Нет'],
+        'button' : [['Только плей-офф'], ['Все игры'],
+                    ['В начало'], ['Назад']],
+        'text': 'Все игры или только игры плей-офф?',
+        'additional': 'Ведите ID игры\n'
+                      '_ID можно узнать в разделе игры_'
+    },
+    1: {
+        'answer': ['Только плей-офф', 'Все игры'],
+        'button' : [['Сезон'], ['Временной период'], ['В начало'], ['Назад']],
+        'text': 'Все игры или только игры плей-офф?'
+    },
+    2: {
+        'answer': ['Сезон', 'Временной период'],
+        'button' : [['Начальная + конечная дата'], ['Конкретный день'],
+                    ['В начало'], ['Назад']],
+        'text': 'За какой период Вам нужна информация?',
+        'additional': 'Введите сезон, в пределах которого '
+                      'Вас интересует статистика игрока.\n'
+                      'К примеру, если требуется статистика игрока '
+                      'за сезон 2016-2017 ввести нужно - "*2016*".\n'
+                      'Запрос должен содержать только четыре цифры.'
+    },
+    3: {
+        'answer': ['Конкретный день', 'Начальная + конечная дата'],
+        'button' : [['В начало'], ['Назад']],
+        'text': 'Ограничьте период в следующем формате:\n'
+                'Для конкретного дня формат такой: _дд-мм-гггг_\n'
+                'Для периода с начальной и конечной датой:\n'
+                '_дд-мм-гггг дд-мм-гггг_\n'
+                'К примеру, если Вас интересует период с 1 января 2019 года '
+                'по 1 марта 2019 года необходимо ввести следующее:\n'
+                '*01-01-2019 01-03-2019*\n'
+                'А если интересен матч за 1 июля 2021 года, то введите '
+                '*01-07-2021*\n'
+                'Будьте внимательны при вводе дат.'
     },
     4: {
         'answer': ['', ''],
@@ -102,8 +160,8 @@ def answer_hub(update, context):
     chat = update.effective_chat
     control_action = control_panel.get(chat.id)
     if text == 'В начало':
-        control_panel[chat.id] = None
-        return head_page(update, context)
+        context.user_data.clear()
+        return head_page(update, context, False)
     if control_action:
         if text == 'Следующие игры' or text == 'Предыдущие игры':
             return flipp_pages(update, context)
@@ -149,13 +207,13 @@ def answer_hub(update, context):
         if control_action.get('search_player'):
             return search_player(update, context)
         if control_action.get('player_id'):
-            if text == 'Поигровая статистика':
+            if text == 'Статистика по играм':
                 control_panel[chat.id]['statistics'] = 'game'
                 return preview_statistics(update, context, season=False)
             if text == 'Статистика сезона':
                 control_panel[chat.id]['statistics'] = 'season'
                 return preview_statistics(update, context)
-    if text == 'Поиск игрока':
+    if text == 'Игроки и статистика':
         return pre_search_player(update, context)
     if text == 'Команды':
         return view_teams(update, context)
@@ -164,30 +222,19 @@ def answer_hub(update, context):
     return head_page(update, context)
 
 
-def wake_up(update, context):
+def head_page(update, context, start=True):
     chat = update.effective_chat
     name = update.message.chat.first_name
+    text = f'Чем я могу Вам помочь, {name}?'
+    if start:
+        text = f'Спасибо, что включили меня, {name}!'
     button = telegram.ReplyKeyboardMarkup(
-        [['Поиск игрока', 'Команды'], ['Игры', 'Кнопка 4']],
+        [['Игры'], ['Команды'], ['Игроки и статистика']],
         resize_keyboard=True
     )
     context.bot.send_message(
         chat_id=chat.id,
-        text='Спасибо, что включили меня, {}!'.format(name),
-        reply_markup=button
-    )
-
-
-def head_page(update, context):
-    chat = update.effective_chat
-    name = update.message.chat.first_name
-    button = telegram.ReplyKeyboardMarkup(
-        [['Поиск игрока', 'Команды'], ['Игры', 'Кнопка 4']],
-        resize_keyboard=True
-    )
-    context.bot.send_message(
-        chat_id=chat.id,
-        text='Чем я могу Вам помочь, {}?'.format(name),
+        text=text,
         reply_markup=button
     )
 
@@ -197,7 +244,7 @@ def pre_search_player(update, context):
     flag = {'search_player': 'search_player'}
     control_panel[chat.id] = flag
     button = telegram.ReplyKeyboardMarkup(
-        [['В начало']],
+        [['Назад'], ['В начало']],
         resize_keyboard=True
     )
     text = (
@@ -221,7 +268,7 @@ def search_player(update, context):
     if re.match(r'^[a-zA-Z ]+$', text) is None:
         return context.bot.send_message(
             chat_id=chat.id,
-            text='Пожалуйста, введите запрос на латинице',
+            text='Убедитесь что Вы ввели верный запрос на латинице',
             reply_markup=button
         )
     text = '_'.join((text).split())
@@ -249,14 +296,13 @@ def search_player(update, context):
         )
     if player_count > 1:
         list_name = [
-            str(
-                i['first_name']) + ' ' + str(i['last_name']
-            ) for i in response_list
+            str(i['first_name']) + ' ' + str(i['last_name'])
+            for i in response_list
         ]
         return context.bot.send_message(
             chat_id=chat.id,
             text=(
-                'Пожалуйста, уточните поиск - введите имя '
+                'Уточните поиск - введите имя '
                 'из предложенного списка:\n_{}_'.format('\n'.join(list_name))
             ),
             reply_markup=button,
@@ -273,7 +319,7 @@ def search_player(update, context):
         photo = requests.get(f'{ENDPOINT_PHOTO_SEARCH}{info_for_photo}')
         photo = photo.json()['results'][0]
         button = telegram.ReplyKeyboardMarkup(
-            [['Статистика сезона', 'Поигровая статистика'],
+            [['Статистика сезона', 'Статистика по играм'],
             ['В начало']],
             resize_keyboard=True
         )
@@ -314,126 +360,54 @@ def view_teams(update, context):
     )
 
 
-def preview_statistics(
-    update, context,
-    season=True, gameid=False,
-    allgame_period=False, playoff_period=False,
-    allgame_season=False, playoff_season=False
-):
+def preview_statistics(update, context):
     chat = update.effective_chat
-    button = telegram.ReplyKeyboardMarkup(
-        [['Конкретная игра (по ID игры)'],
-        ['Все игры за определенный период'],
-        ['Игры плей-офф за определенный период'],
-        ['Все игры сезона'],
-        ['Игры плей-офф сезона'],
-        ['В начало']],
-        resize_keyboard=True
-    )
-    text = (
-        'Какая статистика игрока Вас интересует?'
-    )
-    if season:
-        button = telegram.ReplyKeyboardMarkup(
-            [['В начало']],
-            resize_keyboard=True
-        )
+    answer = (update['message']['text']).rstrip()
+    flag_dict = context.user_data.get('statistics')
+    button = [['Назад'], ['В начало']]
+    text = ''
+
+    if flag_dict is not None:
+        count = len(flag_dict)
+        print(count)
+        print(context.user_data)
+
+        if answer == VIEW_STATIX.get(count).get('answer')[0]:
+            text = VIEW_STATIX.get(count).get('additional')
+            if text is None:
+                context.user_data.get('statistics').append(True)
+
+        elif answer == VIEW_STATIX.get(count).get('answer')[1]:
+            context.user_data.get('statistics').append(False)
+
+        elif validator(update, context):
+            context.user_data.get('statistics').append(answer)
+            if len(context.user_data.get('statistics')) in (1, 3, 5):
+                return view_games(update, context) ###################################################################
+
+        else:
+            text = 'Попробуйте уточнить запрос. По Вашему запросу ничего не найдено.'
+
+        if not text:
+            text = VIEW_STATIX.get(count).get('text')
+            button = VIEW_STATIX.get(count).get('button')
+
+
+    else:
+        button = [['Да', 'Нет'], ['Назад'], ['В начало']]
         text = (
-            'Введите сезон, в пределах которого '
-            'Вас интересует статистика игрока.\n'
-            'К примеру, если требуется статистика игрока за сезон 2016-2017 '
-            'ввести нужно - "*2016*".\n'
-            'Запрос должен содержать только четыре цифры.'
+            'Вы знаете ID игры и хотите посмотреть детали ее статистики?\n'
+            '_ID можно узнать в разделе игры_'
         )
-    if gameid:
-        button = telegram.ReplyKeyboardMarkup(
-            [['Все игры за определенный период'],
-            ['Игры плей-офф за определенный период'],
-            ['Все игры сезона'],
-            ['Игры плей-офф сезона'],
-            ['В начало']],
-            resize_keyboard=True
-        )
-        text = (
-            'Введите ID игры.\n'
-            'Только цифры.'
-        )
-        control_panel[chat.id]['statistics'] = 'game_go'
-    if allgame_period:
-        button = telegram.ReplyKeyboardMarkup(
-            [['Конкретная игра (по ID игры)'],
-            ['Игры плей-офф за определенный период'],
-            ['Все игры сезона'],
-            ['Игры плей-офф сезона'],
-            ['В начало']],
-            resize_keyboard=True
-        )
-        text = (
-            'Ограничьте период в следующем формате:\n'
-            'дд-мм-гггг дд-мм-гггг\n'
-            'К примеру, если Вас интересует период с 1 января 2019 года '
-            'по 1 марта 2019 года необходимо ввести следующее:\n'
-            '*01-01-2019 01-03-2019*\n'
-            'Будьте внимательны при вводе даты.'
-        )
-        control_panel[chat.id]['statistics'] = 'game_go'
-    if playoff_period:
-        button = telegram.ReplyKeyboardMarkup(
-            [['Конкретная игра (по ID игры)'],
-            ['Все игры за определенный период'],
-            ['Все игры сезона'],
-            ['Игры плей-офф сезона'],
-            ['В начало']],
-            resize_keyboard=True
-        )
-        text = (
-            'Ограничьте период в следующем формате:\n'
-            '_дд-мм-гггг дд-мм-гггг_\n'
-            'К примеру, если Вас интересует период с 1 января 2019 года '
-            'по 1 марта 2019 года необходимо ввести следующее:\n'
-            '*01-01-2019 01-03-2019*\n'
-            'Будьте внимательны при вводе дат.'
-        )
-        control_panel[chat.id]['statistics'] = 'game_go'
-    if allgame_season:
-        button = telegram.ReplyKeyboardMarkup(
-            [['Конкретная игра (по ID игры)'],
-            ['Все игры за определенный период'],
-            ['Игры плей-офф за определенный период'],
-            ['Игры плей-офф сезона'],
-            ['В начало']],
-            resize_keyboard=True
-        )
-        text = (
-            'Введите сезон, в пределах которого '
-            'Вас интересует статистика игрока.\n'
-            'К примеру, если требуется статистика игрока за сезон 2016-2017 '
-            'ввести нужно - "*2016*".\n'
-            'Запрос должен содержать только четыре цифры.'
-        )
-        control_panel[chat.id]['statistics'] = 'game_go'
-    if playoff_season:
-        button = telegram.ReplyKeyboardMarkup(
-            [['Конкретная игра (по ID игры)'],
-            ['Все игры за определенный период'],
-            ['Игры плей-офф за определенный период'],
-            ['Все игры сезона'],
-            ['В начало']],
-            resize_keyboard=True
-        )
-        text = (
-            'Введите сезон, в пределах которого '
-            'Вас интересует статистика игрока.\n'
-            'К примеру, если требуется статистика игрока '
-            'за плей-офф сезона 2016-2017 '
-            'ввести нужно - "*2016*".\n'
-            'Запрос должен содержать только четыре цифры.'
-        )
-        control_panel[chat.id]['statistics'] = 'game_go'
-    context.bot.send_message(
+        context.user_data['statistics'] = []
+
+    return context.bot.send_message(
         chat_id=chat.id,
         text=text,
-        reply_markup=button,
+        reply_markup=telegram.ReplyKeyboardMarkup(
+            button,
+            resize_keyboard=True
+        ),
         parse_mode = 'Markdown'
     )
 
@@ -726,7 +700,7 @@ def flipp_pages(update, context):
     )  
 
 
-updater.dispatcher.add_handler(CommandHandler('start', wake_up))
+updater.dispatcher.add_handler(CommandHandler('start', head_page))
 updater.dispatcher.add_handler
 updater.dispatcher.add_handler(MessageHandler(Filters.text, answer_hub)) # Filters - обработчики типов сообщений
 updater.start_polling(poll_interval=10.0)

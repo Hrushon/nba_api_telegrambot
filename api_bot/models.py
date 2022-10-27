@@ -350,12 +350,13 @@ def game_view(response):
 
     game = (
         'Сезон: {}\n'
+        'ID игры: {}\n'
         '{} против {}\n'
         '{}\n'
         '{}\n'
         'Счёт: {}:{}\n'
     ).format(
-        season,
+        season, id,
         home_team, visitor_team, game_type,
         status_view,
         home_team_score, visitor_team_score,

@@ -1,7 +1,8 @@
-ttt = ['hello', 'world']
-
-a, b = *ttt, 
+t = 1
 
 
-print(b)
+
+
+if t:
+    print('yes')
 
