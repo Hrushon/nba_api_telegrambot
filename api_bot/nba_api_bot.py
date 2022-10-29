@@ -2,10 +2,11 @@
 import logging
 import os
 import sys
-import re
 
 import requests
-import telegram # класс Bot() отправляет сообщения, а класс Updater() получает и обрабатывает сообщения извне
+import telegram
+from http import HTTPStatus
+from datetime import datetime
 
 from dotenv import load_dotenv
 from telegram.ext import CommandHandler, Filters, MessageHandler, Updater
@@ -25,28 +26,31 @@ BOT_TOKEN = os.getenv('BOT_TOKEN') # Токен бота в телеграм
 VIEW_GAMES = {
     0: {
         'answer': ['Только плей-офф', 'Все игры'],
-        'button' : [['Определенная команда'], ['Все команды'], ['Назад']],
+        'button' : [['Определенная команда'], ['Все команды'],
+                    ['Назад'], ['В начало']],
         'text': 'Вам интересны игры всех команд или какой-то конкретной?'
     },
     1: {
         'answer': ['Определенная команда', 'Все команды'],
-        'button' : [['Сезон'], ['Временной период'], ['Назад']],
+        'button' : [['Сезон'], ['Временной период'], ['Назад'], ['В начало']],
         'text': 'За какой период Вам нужна информация?',
         'additional': 'Ведите ID команды'
     },
     2: {
         'answer': ['Сезон', 'Временной период'],
-        'button' : [['Начальная + конечная дата'], ['Конкретный день'], ['Назад']],
-        'text': 'За какой период Вам нужна информация?',
-        'additional': 'Введите сезон, в пределах которого '
-                      'Вас интересует статистика игрока.\n'
-                      'К примеру, если требуется статистика игрока за сезон 2016-2017 '
+        'button' : [['Начальная + конечная дата'], ['Конкретный день'],
+                    ['Назад'], ['В начало']],
+        'text': 'Вы хотите указать конкретную дату или временной период?',
+        'additional': 'Введите сезон, игры в пределах которого '
+                      'Вас интересуют.\n'
+                      'К примеру, если требуется статистика игр '
+                      'за сезон 2016-2017 '
                       'ввести нужно - "*2016*".\n'
                       'Запрос должен содержать только четыре цифры.'
     },
     3: {
         'answer': ['Конкретный день', 'Начальная + конечная дата'],
-        'button' : [['В начало'], ['Назад']],
+        'button' : [['Назад'], ['В начало']],
         'text': 'Ограничьте период в следующем формате:\n'
                 'Для конкретного дня формат такой: _дд-мм-гггг_\n'
                 'Для периода с начальной и конечной датой:\n'
@@ -60,7 +64,7 @@ VIEW_GAMES = {
     },
     4: {
         'answer': ['', ''],
-        'button' : [['В начало'], ['Назад']]
+        'button' : [['Назад'], ['В начало']]
     }
 }
 
@@ -68,20 +72,20 @@ VIEW_STATIX = {
     0: {
         'answer': ['Да', 'Нет'],
         'button' : [['Только плей-офф'], ['Все игры'],
-                    ['В начало'], ['Назад']],
+                    ['Назад'], ['В начало']],
         'text': 'Все игры или только игры плей-офф?',
         'additional': 'Ведите ID игры\n'
                       '_ID можно узнать в разделе игры_'
     },
     1: {
         'answer': ['Только плей-офф', 'Все игры'],
-        'button' : [['Сезон'], ['Временной период'], ['В начало'], ['Назад']],
-        'text': 'Все игры или только игры плей-офф?'
+        'button' : [['Сезон'], ['Временной период'], ['Назад'], ['В начало']],
+        'text': 'Игры сезона или Вас интересует конкретный временной период?'
     },
     2: {
         'answer': ['Сезон', 'Временной период'],
         'button' : [['Начальная + конечная дата'], ['Конкретный день'],
-                    ['В начало'], ['Назад']],
+                    ['Назад'], ['В начало']],
         'text': 'За какой период Вам нужна информация?',
         'additional': 'Введите сезон, в пределах которого '
                       'Вас интересует статистика игрока.\n'
@@ -91,7 +95,7 @@ VIEW_STATIX = {
     },
     3: {
         'answer': ['Конкретный день', 'Начальная + конечная дата'],
-        'button' : [['В начало'], ['Назад']],
+        'button' : [['Назад'], ['В начало']],
         'text': 'Ограничьте период в следующем формате:\n'
                 'Для конкретного дня формат такой: _дд-мм-гггг_\n'
                 'Для периода с начальной и конечной датой:\n'
@@ -105,38 +109,10 @@ VIEW_STATIX = {
     },
     4: {
         'answer': ['', ''],
-        'button' : [['В начало'], ['Назад']]
+        'button' : [['Назад'], ['В начало']]
     }
 }
 
-STATX_GAME = {
-    'gameid': [
-        '^[\d]+$', 
-        '{ENDPOINT}/stats?player_ids[]={player_id}&game_ids={text}'
-    ],
-    'allgame_period': [(
-        '^(0[1-9]|[12][0-9]|3[01])-(0[1-9]|1[012])-((19|20)\d\d) '
-        '(0[1-9]|[12][0-9]|3[01])-(0[1-9]|1[012])-((19|20)\d\d)$'
-    ), (
-        '{ENDPOINT}/stats?player_ids[]={player_id}&start_date={start_date}'
-        '&end_date={end_date}&per_page=5&page={page}'
-    )],
-    'playoff_period': [(
-        '^(0[1-9]|[12][0-9]|3[01])-(0[1-9]|1[012])-((19|20)\d\d) '
-        '(0[1-9]|[12][0-9]|3[01])-(0[1-9]|1[012])-((19|20)\d\d)$'
-    ), (
-        '{ENDPOINT}/stats?player_ids[]={player_id}&start_date={start_date}'
-        '&end_date={end_date}&postseason=true&per_page=5&page={page}'
-    )],
-    'allgame_season': ['^[\d+]{4}$', (
-        '{ENDPOINT}/stats?player_ids[]={player_id}&seasons[]={text}'
-        '&per_page=5&page={page}'
-    )],
-    'playoff_season': ['^[\d+]{4}$', (
-        '{ENDPOINT}/stats?player_ids[]={player_id}&seasons[]={text}'
-        '&postseason=true&per_page=5&page={page}'
-    )]
-}
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -152,74 +128,34 @@ bot = telegram.Bot(token=BOT_TOKEN) # создание экземпляра бо
 updater = Updater(token=BOT_TOKEN) # создание экземпляра для проверки входящих 
 
 cache_dict = {}
-control_panel = {} # {'chat.id': {'search...': '...', 'statistics': '...', }, }
 
 
 def answer_hub(update, context):
     text = update['message']['text']
-    chat = update.effective_chat
-    control_action = control_panel.get(chat.id)
     if text == 'В начало':
         context.user_data.clear()
         return head_page(update, context, False)
-    if control_action:
-        if text == 'Следующие игры' or text == 'Предыдущие игры':
-            return flipp_pages(update, context)
-        if control_action.get('games'):
-            if control_action.get('games')[-1] == 'preview':
-                if text == 'Все игры':
-                    control_panel[chat.id]['games'] = 'all_games'
-                    return preview_games(update, context)
-                if text == 'Игры плей-офф':
-                    control_panel[chat.id]['games'] = 'playoff_games'
-                    return preview_games(update, context)
-        if control_action.get('statistics'):
-            if control_action.get('statistics') == 'season':
-                return statistics_season(update, context)
-            if control_action.get('statistics') == 'game':
-                if text == 'Конкретная игра (по ID игры)':
-                    control_panel[chat.id]['statistic_index'] = 'gameid'
-                    return preview_statistics(
-                        update, context, season=False, gameid=True
-                    )
-                if text == 'Все игры за определенный период':
-                    control_panel[chat.id]['statistic_index'] = 'allgame_period'
-                    return preview_statistics(
-                        update, context, season=False, allgame_period=True
-                    )
-                if text == 'Игры плей-офф за определенный период':
-                    control_panel[chat.id]['statistic_index'] = 'playoff_period'
-                    return preview_statistics(
-                        update, context, season=False, playoff_period=True
-                    )
-                if text == 'Все игры сезона':
-                    control_panel[chat.id]['statistic_index'] = 'allgame_season'
-                    return preview_statistics(
-                        update, context, season=False, allgame_season=True
-                    )
-                if text == 'Игры плей-офф сезона':
-                    control_panel[chat.id]['statistic_index'] = 'playoff_season'
-                    return preview_statistics(
-                        update, context, season=False, playoff_season=True
-                    )
-            if control_action.get('statistics') == 'game_go':
-                return statistics_game(update, context)
-        if control_action.get('search_player'):
-            return search_player(update, context)
-        if control_action.get('player_id'):
-            if text == 'Статистика по играм':
-                control_panel[chat.id]['statistics'] = 'game'
-                return preview_statistics(update, context, season=False)
-            if text == 'Статистика сезона':
-                control_panel[chat.id]['statistics'] = 'season'
-                return preview_statistics(update, context)
-    if text == 'Игроки и статистика':
-        return pre_search_player(update, context)
+    if text == 'Назад':
+        return back_to_the_future(update, context)
+    if text == 'Следующие игры' or text == 'Предыдущие игры':
+        return flipp_pages(update, context)
+    if text == 'Статистика по играм' or context.user_data.get(
+        'statistics'
+    ) is not None:
+        return preview_statistics(update, context)
+    if text in (
+        'Статистика сезона', 'Выбор другого сезона'
+    ) or context.user_data.get('average') is not None:
+        return statistics_season(update, context)
+    if text == 'Игроки и статистика' or context.user_data.get(
+        'player'
+    ) is not None:
+        return search_player(update, context)
     if text == 'Команды':
         return view_teams(update, context)
     if text == 'Игры' or context.user_data.get('games') is not None:
         return preview_games(update, context)
-    return head_page(update, context)
+    return head_page(update, context, False)
 
 
 def head_page(update, context, start=True):
@@ -239,98 +175,113 @@ def head_page(update, context, start=True):
     )
 
 
-def pre_search_player(update, context):
-    chat = update.effective_chat
-    flag = {'search_player': 'search_player'}
-    control_panel[chat.id] = flag
-    button = telegram.ReplyKeyboardMarkup(
-        [['Назад'], ['В начало']],
-        resize_keyboard=True
-    )
-    text = (
-        'Введите имя игрока, которого Вы хотите найти. '
-        'Запрос должен быть на латинице.'
-    )
-    context.bot.send_message(
-        chat_id=chat.id,
-        text=text,
-        reply_markup=button
-    )
+def back_to_the_future(update, context):
+    statictics_flag = context.user_data.get('statistics')
+    games_flag = context.user_data.get('games')
+
+    if statictics_flag is not None:
+        count = len(statictics_flag)
+        if count != 0:
+            statictics_flag.pop()
+        else:
+            context.user_data.pop('statistics')
+        return preview_statistics(update, context)
+    if games_flag is not None:
+        count = len(games_flag)
+        if count != 0:
+            games_flag.pop()
+        else:
+            context.user_data.pop('games')
+        return preview_games(update, context)
+
+    return head_page(update, context)
 
 
 def search_player(update, context):
     chat = update.effective_chat
-    text = (update['message']['text']).rstrip()
-    button = telegram.ReplyKeyboardMarkup(
-        [['В начало']],
-        resize_keyboard=True
-    )
-    if re.match(r'^[a-zA-Z ]+$', text) is None:
-        return context.bot.send_message(
-            chat_id=chat.id,
-            text='Убедитесь что Вы ввели верный запрос на латинице',
-            reply_markup=button
+    answer = (update['message']['text']).rstrip()
+    flag_dict = context.user_data.get('player')
+    text = 'Что-то пошло не так!'
+
+    if flag_dict is not None:
+        if validator(update, context):
+            answer = '_'.join((answer).split())
+            response = requests.get(
+                f'{ENDPOINT}players?per_page=25&search={answer}'
+            )
+            response = response.json()
+            response_list = response.get('data')
+            player_count = response.get('meta').get('total_count')
+            if player_count == 0:
+                text='К сожалению ничего не найдено. Уточните запрос'
+            elif player_count > 25:
+                text=(
+                    'Пожалуйста, уточните поиск.\n'
+                    'Количество найденных игроков превышает *25*!'
+                )
+            elif player_count > 1:
+                list_name = [
+                    str(i['first_name']) + ' ' + str(i['last_name'])
+                    for i in response_list
+                ]
+                text=(
+                    'Уточните поиск - введите имя '
+                    'из предложенного списка:\n_{}_'.format('\n'.join(list_name))
+                )
+            elif response_list:
+                response = response_list[0]
+                player_id = response.get('id')
+                first_name = response.get('first_name')
+                last_name = response.get('last_name')
+                context.user_data.get('player').append(player_id)
+                context.user_data.get('player').append(first_name)
+                context.user_data.get('player').append(last_name)
+                result = player(response)
+                info_for_photo = '{}_{}'.format(first_name, last_name)
+                photo = requests.get(f'{ENDPOINT_PHOTO_SEARCH}{info_for_photo}')
+                button = telegram.ReplyKeyboardMarkup(
+                    [
+                        ['Статистика сезона', 'Статистика по играм'],
+                        ['В начало']
+                    ],
+                    resize_keyboard=True
+                )
+                if photo.status_code == HTTPStatus.OK:
+                    photo = photo.json()['results'][0]
+                    return context.bot.send_photo(
+                        chat_id=chat.id,
+                        photo=photo,
+                        caption=result,
+                        reply_markup=button,
+                        parse_mode='Markdown'
+                    )
+                return context.bot.send_message(
+                    chat_id=chat.id,
+                    text=result,
+                    reply_markup=button,
+                    parse_mode='Markdown'
+                )
+
+        else:
+            text = ('Попробуйте уточнить запрос. Ничего не найдено.\n'
+                   'Убедитесь что Вы ввели верный запрос на латинице')
+
+    else:
+        text = (
+            'Введите имя игрока, которого Вы хотите найти. '
+            'Запрос должен быть на латинице.'
         )
-    text = '_'.join((text).split())
-    response = requests.get(
-        '{}/players?per_page=25&search={}'.format(ENDPOINT, text)
-    )
-    response = response.json()
-    response_list = response.get('data')
-    player_count = response.get('meta').get('total_count')
-    if player_count == 0:     
-        return context.bot.send_message(
-            chat_id=chat.id,
-            text='К сожалению ничего не найдено. Уточните запрос',
-            reply_markup=button
-        )
-    if player_count > 25:      
-        return context.bot.send_message(
-            chat_id=chat.id,
-            text=(
-                'Пожалуйста, уточните поиск.\n'
-                'Количество найденных игроков превышает *25*!'
-            ),
-            reply_markup=button,
-            parse_mode='Markdown'
-        )
-    if player_count > 1:
-        list_name = [
-            str(i['first_name']) + ' ' + str(i['last_name'])
-            for i in response_list
-        ]
-        return context.bot.send_message(
-            chat_id=chat.id,
-            text=(
-                'Уточните поиск - введите имя '
-                'из предложенного списка:\n_{}_'.format('\n'.join(list_name))
-            ),
-            reply_markup=button,
-            parse_mode='Markdown'
-        )
-    if response_list:
-        response = response_list[0]
-        player_id = response.get('id')
-        control_panel[chat.id]['player_id'] = player_id
-        f_n = response.get('first_name')
-        l_n = response.get('last_name')
-        result = player(response)
-        info_for_photo = '{}_{}'.format(f_n, l_n)
-        photo = requests.get(f'{ENDPOINT_PHOTO_SEARCH}{info_for_photo}')
-        photo = photo.json()['results'][0]
-        button = telegram.ReplyKeyboardMarkup(
-            [['Статистика сезона', 'Статистика по играм'],
-            ['В начало']],
+        context.user_data['player'] = []
+
+    return context.bot.send_message(
+        chat_id=chat.id,
+        text=text,
+        reply_markup=telegram.ReplyKeyboardMarkup(
+            [['В начало']],
             resize_keyboard=True
-        )
-        context.bot.send_photo(
-            chat_id=chat.id,
-            photo=photo,
-            caption=result,
-            reply_markup=button,
-            parse_mode='Markdown'
-        )
-        control_panel[chat.id]['search_player'] = None
+        ),
+        parse_mode = 'Markdown'
+    )
 
 
 def view_teams(update, context):
@@ -369,8 +320,6 @@ def preview_statistics(update, context):
 
     if flag_dict is not None:
         count = len(flag_dict)
-        print(count)
-        print(context.user_data)
 
         if answer == VIEW_STATIX.get(count).get('answer')[0]:
             text = VIEW_STATIX.get(count).get('additional')
@@ -383,21 +332,20 @@ def preview_statistics(update, context):
         elif validator(update, context):
             context.user_data.get('statistics').append(answer)
             if len(context.user_data.get('statistics')) in (1, 3, 5):
-                return view_games(update, context) ###################################################################
+                return view_statistics(update, context)
 
         else:
-            text = 'Попробуйте уточнить запрос. По Вашему запросу ничего не найдено.'
+            text = 'Попробуйте уточнить запрос. Ничего не найдено.'
 
-        if not text:
+        if not text or answer == 'Назад':
             text = VIEW_STATIX.get(count).get('text')
             button = VIEW_STATIX.get(count).get('button')
 
-
     else:
-        button = [['Да', 'Нет'], ['Назад'], ['В начало']]
+        button = [['Да', 'Нет'], ['В начало']]
         text = (
             'Вы знаете ID игры и хотите посмотреть детали ее статистики?\n'
-            '_ID можно узнать в разделе игры_'
+            '_ID можно узнать в разделе "Игры"_'
         )
         context.user_data['statistics'] = []
 
@@ -412,77 +360,64 @@ def preview_statistics(update, context):
     )
 
 
-def statistics_game(update, context):
+def view_statistics(update, context):
     chat = update.effective_chat
-    text = (update['message']['text']).rstrip()
     button = telegram.ReplyKeyboardMarkup(
         [['В начало']],
         resize_keyboard=True
     )
-    type_statistics = control_panel.get(chat.id).get('statistic_index')
-    etalon = STATX_GAME.get(type_statistics)[0]
-    if re.match(rf'{etalon}', text) is None:
-        return context.bot.send_message(
-            chat_id=chat.id,
-            text=(
-                'Ошибка при обработке данных.\n'
-                'Пожалуйста, проверьте правильность ввода данных.'
-            ),
-            reply_markup=button
-        )
-    page, start_date, end_date = 0, 0, 0
-    if ' ' in text:
-        start_date=text.split()[0]
-        end_date=text.split()[1]
-    player_id = control_panel.get(chat.id).get('player_id')
-    custom_url = STATX_GAME.get(type_statistics)[1]
-    response = requests.get(custom_url.format(
-        ENDPOINT=ENDPOINT, player_id=player_id,
-        text=text, start_date=start_date,
-        end_date=end_date, page=page
-    ))
+    if context.user_data.get('player') is not None:
+        player_id = context.user_data.get('player')[0]
+        first_name = context.user_data.get('player')[1]
+        last_name = context.user_data.get('player')[2]
+    user_data = context.user_data.get('statistics')
+    game_id, playoff, season = user_data[0], user_data[1], user_data[2]
+    final_url = (f'{ENDPOINT}stats?player_ids[]={player_id}'
+                 f'&per_page=5&postseason={playoff}')
+    
+    if game_id:
+        final_url += f'&game_ids[]={game_id}'
+    if season:
+        final_url += f'&seasons[]={season}'
+
+
+    if not isinstance(season, str):
+        if not user_data[3]:
+            user_data = (user_data[4]).split(' ')
+            start_date, end_date = *user_data,
+            start_date = '-'.join(reversed(start_date.split('-')))
+            end_date = '-'.join(reversed(end_date.split('-')))
+            final_url += f'&start_date={start_date}&end_date={end_date}'
+        else:
+            date = user_data[4]
+            final_url += f'&dates[]={date}'
+
+    response = requests.get(final_url)
     final_url = response.url
     response = response.json()
     response_list = response.get('data')
-    if response_list:
-        button = telegram.ReplyKeyboardMarkup(
-            [['Конкретная игра (по ID игры)'],
-            ['Все игры за определенный период'],
-            ['Игры плей-офф за определенный период'],
-            ['Все игры сезона'],
-            ['Игры плей-офф сезона'],
-            ['В начало']],
-            resize_keyboard=True
-        )
-        # control_panel[chat.id]['statistics'] = 'game'
-        games_count = response.get('meta').get('total_count')
-        pages_count = response.get('meta').get('total_pages')
-        current_page = response.get('meta').get('current_page')
-        per_page = response.get('meta').get('per_page')
-        response = response_list[0]
-        f_n = response.get('player').get('first_name')
-        l_n = response.get('player').get('last_name')
-        result = statistics_per_game(response)
+    games_count = response.get('meta').get('total_count')
+    pages_count = response.get('meta').get('total_pages')
+    if response_list and games_count:
+        result = [statistics_per_game(i) for i in response_list]
         if pages_count > 1:
+            page = pages_count
             button = telegram.ReplyKeyboardMarkup(
                 [['Следующие игры'],
                 ['В начало']],
                 resize_keyboard=True
             )
-            page = pages_count
-            control_panel[chat.id]['endpoint'] = final_url
-            control_panel[chat.id]['current_page'] = page
-            response = requests.get(custom_url.format(
-                ENDPOINT=ENDPOINT, player_id=player_id,
-                text=text, start_date=start_date,
-                end_date=end_date, page=page
-            ))
+            context.user_data['current_endpoint'] = final_url
+            context.user_data['current_page'] = page
+            final_url += f'&page={page}'
+            response = requests.get(final_url)
             response = response.json()
             response_list = response.get('data')
             result = [statistics_per_game(i) for i in response_list]
+
         text = ('Статистика игрока *{} {}* по играм:\n\n'
                 'Количество игр в выборке: *{}*\n\n{}').format(
-            f_n, l_n, games_count, '\n'.join(reversed(result))
+            first_name, last_name, games_count, '\n'.join(reversed(result))
         )
         return context.bot.send_message(
             chat_id=chat.id,
@@ -499,50 +434,59 @@ def statistics_game(update, context):
 
 def statistics_season(update, context):
     chat = update.effective_chat
-    text = (update['message']['text']).rstrip()
-    button = telegram.ReplyKeyboardMarkup(
-        [['В начало']],
-        resize_keyboard=True
-    )
-    if re.match(r'^[\d+]{4}$', text) is None:
-        return context.bot.send_message(
-            chat_id=chat.id,
-            text='Пожалуйста, введите 4 цифры года',
-            reply_markup=button
+    button = [['В начало']]
+    answer = (update['message']['text']).rstrip()
+    flag_dict = context.user_data.get('average')
+    if context.user_data.get('player') is not None:
+        player_id = context.user_data.get('player')[0]
+        first_name = context.user_data.get('player')[1]
+        last_name = context.user_data.get('player')[2]
+
+    if flag_dict is not None and answer != 'Выбрать другой сезон':
+        if validator(update, context):
+            response = requests.get(
+                '{}season_averages?season={}&player_ids[]={}'.format(
+                    ENDPOINT, answer, player_id
+                )
+            )
+            response = response.json()
+            response_list = response.get('data')
+            if response_list:
+                response = response_list[0]
+                result = statistics(response)
+                text = f'Статистика игрока *{first_name} {last_name}*:\n\n{result}'
+                button = telegram.ReplyKeyboardMarkup(
+                    [['Выбрать другой сезон', 'Статистика по играм'],
+                    ['В начало']],
+                    resize_keyboard=True
+                )
+                return context.bot.send_message(
+                    chat_id=chat.id,
+                    text=text,
+                    reply_markup=button,
+                    parse_mode='Markdown'
+                )
+        else:
+            text = ('Убедитесь что Вы ввели верный запрос')
+
+    else:
+        text = (
+            'Введите сезон, в пределах которого '
+            'Вас интересует статистика игрока.\n'
+            'К примеру, если требуется статистика игрока '
+            'за сезон 2016-2017 ввести нужно - "*2016*".\n'
+            'Запрос должен содержать только четыре цифры.'
         )
-    player_id = control_panel.get(chat.id).get('player_id')
-    response = requests.get(
-        '{}season_averages?season={}&player_ids[]={}'.format(
-            ENDPOINT, text, player_id
-        )
-    )
-    response = response.json()
-    response_list = response.get('data')
-    if response_list:
-        response = response_list[0]
-        result = statistics(response)
-        response = requests.get(
-            '{}/players/{}'.format(ENDPOINT, player_id)
-        )
-        response = response.json()
-        f_n = response.get('first_name')
-        l_n = response.get('last_name')
-        text = f'Статистика игрока *{f_n} {l_n}*:\n{result}'
-        button = telegram.ReplyKeyboardMarkup(
-            [['Выбрать другой сезон', 'Поигровая статистика'],
-            ['В начало']],
-            resize_keyboard=True
-        )
-        return context.bot.send_message(
-            chat_id=chat.id,
-            text=text,
-            reply_markup=button,
-            parse_mode='Markdown'
-        )
+        context.user_data['average'] = []
+
     return context.bot.send_message(
         chat_id=chat.id,
-        text='Статистики за данный период не найдено',
-        reply_markup=button
+        text=text,
+        reply_markup=telegram.ReplyKeyboardMarkup(
+            button,
+            resize_keyboard=True
+        ),
+        parse_mode = 'Markdown'
     )
 
 
@@ -550,13 +494,11 @@ def preview_games(update, context):
     chat = update.effective_chat
     answer = (update['message']['text']).rstrip()
     flag_dict = context.user_data.get('games')
-    button = [['Назад']]
+    button = [['Назад'], ['В начало']]
     text = ''
 
     if flag_dict is not None:
         count = len(flag_dict)
-        print(count)
-        print(context.user_data)
 
         if answer == VIEW_GAMES.get(count).get('answer')[0]:
             text = VIEW_GAMES.get(count).get('additional')
@@ -572,16 +514,17 @@ def preview_games(update, context):
                 return view_games(update, context)
 
         else:
-            text = 'Попробуйте уточнить запрос. По Вашему запросу ничего не найдено.'
+            text = ('Попробуйте уточнить запрос. '
+                   'По Вашему запросу ничего не найдено.')
 
-        if not text:
+        if not text or answer == 'Назад':
             text = VIEW_GAMES.get(count).get('text')
             button = VIEW_GAMES.get(count).get('button')
 
 
     else:
-        button = [['Только плей-офф'], ['Все игры'], ['Назад']]
-        text = 'Выберите тип игры'
+        button = [['Только плей-офф'], ['Все игры'], ['В начало']]
+        text = 'Выберите тип игр'
         context.user_data['games'] = []
 
     return context.bot.send_message(
@@ -615,49 +558,64 @@ def view_games(update, context):
         if not user_data[3]:
             user_data = (user_data[4]).split(' ')
             start_date, end_date = *user_data,
+            start_date = '-'.join(reversed(start_date.split('-')))
+            end_date = '-'.join(reversed(end_date.split('-')))
             final_url += f'&start_date={start_date}&end_date={end_date}'
         else:
             date = user_data[4]
             final_url += f'&dates[]={date}'
 
-
     response = requests.get(final_url)
     final_url = response.url
-    print(final_url)
     response = response.json()
     response_list = response.get('data')
     games_count = response.get('meta').get('total_count')
+    pages_count = response.get('meta').get('total_pages')
     if games_count and response_list:
-        list_games = [game_view(i) for i in response_list]
+        result = [game_view(i) for i in response_list]
+        if pages_count > 1:
+            page = pages_count
+            button = telegram.ReplyKeyboardMarkup(
+                [['Следующие игры'],
+                ['В начало']],
+                resize_keyboard=True
+            )
+            context.user_data['current_endpoint'] = final_url
+            context.user_data['current_page'] = page
+            final_url += f'&page={page}'
+            response = requests.get(final_url)
+            response = response.json()
+            response_list = response.get('data')
+            result = [game_view(i) for i in response_list]
 
+        text = ('Количество игр в выборке: *{}*\nСписок игр:\n{}'.format(
+                games_count, '\n'.join(reversed(result))
+        ))
+        return context.bot.send_message(
+            chat_id=chat.id,
+            text=text,
+            reply_markup=button,
+            parse_mode='Markdown'
+        )
     return context.bot.send_message(
         chat_id=chat.id,
-        text=(
-            'Список игр:\nВсего игр: {}\n{}'.format(
-                games_count, ('\n'.join(list_games))
-            )
-        ),
-        reply_markup=button,
-        parse_mode='Markdown'
+        text='Игр за данный период не найдено',
+        reply_markup=button
     )
 
 
 def flipp_pages(update, context):
+    text = 'Что-то не так'
     chat = update.effective_chat
-    text = (update['message']['text']).rstrip()
-    button = telegram.ReplyKeyboardMarkup(
-        [['Предыдущие игры'], ['Следующие игры'],
-        ['В начало']],
-        resize_keyboard=True
-    )
-    type_statistics = control_panel.get(chat.id).get('statistic_index')
-    final_url = control_panel.get(chat.id).get('endpoint')
-    current_page = control_panel[chat.id].get('current_page')
-    if text == 'Следующие игры':
+    answer = (update['message']['text']).rstrip()
+    button = [['Предыдущие игры'], ['Следующие игры'], ['В начало']]
+    final_url = context.user_data.get('current_endpoint')
+    current_page = context.user_data.get('current_page')
+    if answer == 'Следующие игры':
         page = current_page - 1
     else:
         page = current_page + 1
-    control_panel[chat.id]['current_page'] = page
+    context.user_data['current_page'] = page
     params = {'page': page}
     response = requests.get(final_url, params=params)
     response = response.json()
@@ -665,43 +623,37 @@ def flipp_pages(update, context):
     if response_list:
         pages_count = response.get('meta').get('total_pages')
         if page == pages_count:
-            button = telegram.ReplyKeyboardMarkup(
-                [['Следующие игры'],
-                ['В начало']],
-                resize_keyboard=True
-            )
+            button = [['Следующие игры'], ['В начало']]
         if page == 1:
-            button = telegram.ReplyKeyboardMarkup(
-                [['Предыдущие игры'],
-                ['В начало']],
-                resize_keyboard=True
-            )
-        if type_statistics in (STATX_GAME):
-            games_count = response.get('meta').get('total_count')
+            button = [['Предыдущие игры'], ['В начало']]
+        games_count = response.get('meta').get('total_count')
+        if context.user_data.get('statistics'):
             result = [statistics_per_game(i) for i in response_list]
-            response = response_list[0]
-            f_n = response.get('player').get('first_name')
-            l_n = response.get('player').get('last_name')
+            first_name = context.user_data.get('player')[1]
+            last_name = context.user_data.get('player')[2]
             text = ('Статистика игрока *{} {}* по играм:\n\n'
                     'Количество игр в выборке: *{}*\n\n{}').format(
-                f_n, l_n, games_count, '\n'.join(reversed(result))
+                first_name, last_name, games_count,
+                '\n'.join(reversed(result))
             )
-        return context.bot.send_message(
-            chat_id=chat.id,
-            text=text,
-            reply_markup=button,
-            parse_mode='Markdown'
-        )    
+        elif context.user_data.get('games'):
+            result = [game_view(i) for i in response_list]
+            text = ('Количество игр в выборке: *{}*\nСписок игр:\n{}'.format(
+                games_count, '\n'.join(reversed(result))
+            ))
+ 
     return context.bot.send_message(
         chat_id=chat.id,
-        text='Что то не так',
-        reply_markup=button,
+        text=text,
+        reply_markup=telegram.ReplyKeyboardMarkup(
+            button,
+            resize_keyboard=True
+        ),
         parse_mode='Markdown'
-    )  
+    )
 
 
 updater.dispatcher.add_handler(CommandHandler('start', head_page))
-updater.dispatcher.add_handler
-updater.dispatcher.add_handler(MessageHandler(Filters.text, answer_hub)) # Filters - обработчики типов сообщений
-updater.start_polling(poll_interval=10.0)
+updater.dispatcher.add_handler(MessageHandler(Filters.text, answer_hub))
+updater.start_polling(poll_interval=5.0)
 updater.idle()

@@ -1,8 +1,5 @@
-t = 1
 
+user_data = ['21-02-1990 22-03-2000', 'jdffhkdjsghk']
+user_data.pop()
 
-
-
-if t:
-    print('yes')
-
+print(user_data)
