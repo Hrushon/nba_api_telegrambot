@@ -147,7 +147,7 @@ def statistics_per_season(response):
     reb = response.get('reb')
     stl = response.get('stl')
     turnover = response.get('turnover')
-    if season is not None:
+    if season:
         season = '{}-{}'.format(season, season + 1)
     statistics_str = (
         'Сезон: *{}*.\n'
@@ -230,7 +230,7 @@ def statistics_per_game(response):
     team_full_name = team.get('full_name')
     team_name = team.get('name')
     turnover = response.get('turnover')
-    if game_season is not None:
+    if game_season:
         game_season = '{}-{}'.format(game_season, game_season + 1)
     game_home_team_name = teams_list[
         game_home_team_id - 1
@@ -282,8 +282,9 @@ def game_view(response):
     date = '-'.join([date[2], date[1], date[0]])
     home_team_score = response.get('home_team_score')
     visitor_team_score = response.get('visitor_team_score')
-    season = int(response.get('season'))
-    season = str(season) + '-' + str(season + 1)
+    season = response.get('season')
+    if season:
+        season = '{}-{}'.format(season, season + 1)
     period = response.get('period')
     status = response.get('status')
     time = response.get('time')

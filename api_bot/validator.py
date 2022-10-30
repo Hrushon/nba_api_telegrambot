@@ -26,5 +26,5 @@ def validator(update, context):
         if context.user_data.get(item) is not None:
             etalon = VALID_ETALONS[item] 
 
-    text = (update['message']['text']).rstrip()
+    text = update.message.text
     return re.match(rf'{etalon}', text)

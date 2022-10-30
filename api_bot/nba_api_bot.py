@@ -12,6 +12,12 @@ from dotenv import load_dotenv
 from telegram.ext import CommandHandler, Filters, MessageHandler, Updater
 
 from constants import VIEW_GAMES, VIEW_STATIX
+from exceptions import (
+    ApiRequestTrouble,
+    ApiStatusTrouble,
+    ResponseEmptyFail,
+    SendMessageFail
+)
 from models import (
     game_view, player, team_min,
     statistics_per_season, statistics_per_game
@@ -22,10 +28,14 @@ from validator import validator
 load_dotenv()
 
 ENDPOINT = 'https://www.balldontlie.io/api/v1/'
-ENDPOINT_PHOTO_SEARCH = 'https://imsea.herokuapp.com/api/1?q=nba_'
+ENDPOINT_PHOTO_SEARCH = 'https://imsea.herokuapp.com/api/1'
 
 ADMIN_ID = os.getenv('ADMIN_ID') # Айди аккаунта в телеграм
 BOT_TOKEN = os.getenv('BOT_TOKEN') # Токен бота в телеграм
+TOKENS_NAME = {
+    ADMIN_ID: 'ID администратора',
+    BOT_TOKEN: 'Токен бота'
+}
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -43,7 +53,23 @@ updater = Updater(token=BOT_TOKEN)
 cache_dict = {}
 
 
-def answer_hub(update, context):
+def check_tokens():
+    """Проверяет наличие токена и ID чата администратора."""
+    if all(ADMIN_ID, BOT_TOKEN):
+        return True
+
+    for i in (ADMIN_ID, BOT_TOKEN):
+        if not i:
+            name_token = TOKENS_NAME[i]
+            logger.critical(
+                'Отсутствует обязательная переменная окружения: '
+                '%s. '
+                'Программа принудительно остановлена.', name_token
+            )
+    return False
+
+
+def check_answer(update, context):
     """
     В зависимости от сообщения пользователя возвращает функцию обработчик.
     Если не выбран ни один обработчик сообщения - возвращает начальное меню.
@@ -51,10 +77,10 @@ def answer_hub(update, context):
     text = update.message.text
     if text == 'В начало':
         context.user_data.clear()
-        return head_page(update, context, False)
+        return get_head_page(update, context, False)
     if text == 'Назад':
         return back_to_the_future(update, context)
-    if text == 'Следующие игры' or text == 'Предыдущие игры':
+    if text in ('Следующие игры', 'Предыдущие игры'):
         return flipp_pages(update, context)
     if text == 'Статистика по играм' or context.user_data.get(
         'statistics'
@@ -63,7 +89,7 @@ def answer_hub(update, context):
     if text in (
         'Статистика сезона', 'Выбор другого сезона'
     ) or context.user_data.get('average') is not None:
-        return statistics_season(update, context)
+        return view_season_statistics(update, context)
     if text == 'Игроки и статистика' or context.user_data.get(
         'player'
     ) is not None:
@@ -72,10 +98,124 @@ def answer_hub(update, context):
         return view_teams(update, context)
     if text == 'Игры' or context.user_data.get('games') is not None:
         return preview_games(update, context)
-    return head_page(update, context, False)
+    return get_head_page(update, context, False)
 
 
-def head_page(update, context, start=True):
+def send_text_message(
+    context, chat_id, text, reply_markup, parse_mode='Markdown'
+):
+    """
+    Все текстовые сообщения пользователям в Телеграм отправляются 
+    через эту функцию. Перехватывает и логирует возникающие при отправке 
+    ошибки.
+    """
+    logger.info('Начало отправки сообщения ботом.')
+
+    try:
+        context.bot.send_message(
+            chat_id=chat_id,
+            text=text,
+            reply_markup=reply_markup,
+            parse_mode=parse_mode
+        )
+    except Exception as error:
+        raise SendMessageFail(
+            'Сбой при отправке текстового сообщения в Телеграмм. %s', error
+        )
+    else:
+        logger.info('Бот отправил сообщение: %s', text)
+
+
+def send_photo_message(
+    context, chat_id, photo, caption, reply_markup, parse_mode='Markdown'
+):
+    """
+    Все сообщения с фотографиями пользователям в Телеграм отправляются 
+    через эту функцию. Перехватывает и логирует возникающие при отправке 
+    ошибки.
+    """
+    logger.info('Начало отправки сообщения ботом.')
+
+    try:
+        context.bot.send_photo(
+            chat_id=chat_id,
+            photo=photo,
+            caption=caption,
+            reply_markup=reply_markup,
+            parse_mode=parse_mode
+        )
+    except Exception as error:
+        raise SendMessageFail(
+            'Сбой при отправке сообщения с фото в Телеграмм. %s', error
+        )
+    else:
+        logger.info('Бот отправил сообщение: \n%s\n$s', photo, caption)
+
+
+def check_api_answer(endpoint, params):
+    """
+    Посредством этой функции производятся все запросы к внешним сервисам API.
+    Функция проверяет HTTP-статус полученного ответа от API-сервиса, а также 
+    перехватывает и логирует все ошибки при отправке запросов.
+    """
+    logger.info('Начало проверки корректности запроса к API.')
+    try:
+        response = requests.get(endpoint, params=params)
+    except Exception as error:
+        raise ApiRequestTrouble(
+            'Сбой при запросе к эндпоинту %s.'
+            'Параметры запроса: %s.'
+            'Ошибка: %s', endpoint, params, error
+        )
+    else:
+        if response.status_code != HTTPStatus.OK:
+            raise ApiStatusTrouble(
+                'Сбой при запросе к эндпоинту %s. '
+                'Код ответа API: %s.'
+                'Параметры запроса: %s.',
+                endpoint, response.status_code, params
+            )
+        endpoint = response.url
+        response = response.json()
+        return check_response_content(response, endpoint)
+
+
+def check_response_content(response, endpoint):
+    """
+    Функция проверяет структуру ответа API-сервиса на корректность 
+    и логирует все ошибки.
+    """
+    logger.info('Начало проверки корректности структуры ответа API.')
+    if not isinstance(response, dict):
+        raise TypeError(
+            f'Ответ API c эндпоинта: {endpoint} пришел не в виде словаря.'
+        )
+    for item in ('data', 'meta'):
+        if item not in response:
+            raise KeyError(
+                f'Отсутствует ключ {item} в ответе API c эндпоинта: '
+                f'{endpoint}.'
+            )
+    data = response.get('data')
+    if not isinstance(data, list):
+        raise TypeError(
+            f'Значение data ответа API c эндпоинта: {endpoint} '
+            f'пришел не в виде списка.'
+        )
+    meta = response.get('meta')
+    if not isinstance(meta, dict):
+        raise TypeError(
+            f'Значение data ответа API c эндпоинта: {endpoint} '
+            f'пришел не в виде словаря.'
+        )
+    if not data or meta:
+        raise ResponseEmptyFail(
+            f'Пришел пустой ответ API c эндпоинта: {endpoint}.'
+        )
+    return response
+
+
+def get_head_page(update, context, start=True):
     """
     Функция возвращает главную страницу (начальное меню).
     Немного видоизменяется в зависимости от типа сообщения.
@@ -87,14 +227,14 @@ def head_page(update, context, start=True):
     text = f'Чем я могу Вам помочь, {name}?'
     if start:
         text = f'Спасибо, что включили меня, {name}!'
-    button = telegram.ReplyKeyboardMarkup(
-        [['Игры'], ['Команды'], ['Игроки и статистика']],
-        resize_keyboard=True
-    )
-    context.bot.send_message(
+    send_text_message(
+        context=context,
         chat_id=chat.id,
         text=text,
-        reply_markup=button
+        reply_markup=telegram.ReplyKeyboardMarkup(
+            [['Игры'], ['Команды'], ['Игроки и статистика']],
+            resize_keyboard=True
+        )
     )
 
 
@@ -122,7 +262,7 @@ def back_to_the_future(update, context):
                 context.user_data.pop(item)
             return back_func_choice[item](update, context)            
 
-    return head_page(update, context)
+    return get_head_page(update, context)
 
 
 def search_player(update, context):
@@ -139,16 +279,19 @@ def search_player(update, context):
     без неё и предлагает ознакомиться со статистикой игрока.
     """
     endpoint = f'{ENDPOINT}players'
-    params = {'per_page': '25'}
     chat = update.effective_chat
     answer = update.message.text
     flag_dict = context.user_data.get('player')
-    text = 'Что-то пошло не так!'
+    text = (
+        'Введите имя игрока, которого Вы хотите найти. '
+        '*Запрос должен быть на латинице*.'
+    )
+    button = [['В начало']]
 
     if flag_dict is not None:
         if validator(update, context):
             answer = '_'.join((answer).split(' '))
-            params.update({'search': answer})
+            params = {'per_page': 25, 'search': answer}
             response = requests.get(endpoint, params=params)
             response = response.json()
             response_list = response.get('data')
@@ -167,7 +310,9 @@ def search_player(update, context):
                 ]
                 text=(
                     'Уточните поиск - введите имя '
-                    'из предложенного списка:\n_{}_'.format('\n'.join(list_name))
+                    'из предложенного списка:\n_{}_'.format(
+                        '\n'.join(list_name)
+                    )
                 )
             elif response_list:
                 endpoint = ENDPOINT_PHOTO_SEARCH
@@ -175,55 +320,42 @@ def search_player(update, context):
                 player_id = response.get('id')
                 first_name = response.get('first_name')
                 last_name = response.get('last_name')
-                context.user_data.get('player').append(player_id)
-                context.user_data.get('player').append(first_name)
-                context.user_data.get('player').append(last_name)
-                result = player(response)
+                context.user_data.get('player').extend(
+                    (player_id, first_name, last_name)
+                )
+                text = player(response)
                 info_for_photo = f'nba_{first_name}_{last_name}'
                 params = {'q': info_for_photo}
                 photo = requests.get(endpoint, params=params)
-                button = telegram.ReplyKeyboardMarkup(
-                    [
-                        ['Статистика сезона', 'Статистика по играм'],
-                        ['В начало']
-                    ],
-                    resize_keyboard=True
-                )
+                button = [
+                    ['Статистика сезона', 'Статистика по играм'],
+                    ['В начало']
+                ]
                 if photo.status_code == HTTPStatus.OK:
                     photo = photo.json()['results'][0]
-                    return context.bot.send_photo(
+                    return send_photo_message(
+                        context=context,
                         chat_id=chat.id,
                         photo=photo,
-                        caption=result,
-                        reply_markup=button,
-                        parse_mode='Markdown'
+                        caption=text,
+                        reply_markup=button
                     )
-                return context.bot.send_message(
-                    chat_id=chat.id,
-                    text=result,
-                    reply_markup=button,
-                    parse_mode='Markdown'
-                )
 
         else:
             text = ('Введенный запрос не прошел проверку.\n'
                    'Убедитесь что Вы ввели верный запрос на латинице')
 
     else:
-        text = (
-            'Введите имя игрока, которого Вы хотите найти. '
-            '*Запрос должен быть на латинице*.'
-        )
         context.user_data['player'] = []
 
-    return context.bot.send_message(
+    return send_text_message(
+        context=context,
         chat_id=chat.id,
         text=text,
         reply_markup=telegram.ReplyKeyboardMarkup(
-            [['В начало']],
+            button,
             resize_keyboard=True
-        ),
-        parse_mode = 'Markdown'
+        )
     )
 
 
@@ -237,13 +369,9 @@ def view_teams(update, context):
     """
     endpoint = f'{ENDPOINT}teams'
     chat = update.effective_chat
-    button = telegram.ReplyKeyboardMarkup(
-        [['В начало']],
-        resize_keyboard=True
-    )
     date = datetime.now()
     flag = f'list_teams_{date.month}_{date.year}'
-    if cache_dict.get(flag) is None:
+    if cache_dict.get(flag):
         response = requests.get(endpoint)
         response = response.json()
         response_list = response.get('data')
@@ -252,13 +380,16 @@ def view_teams(update, context):
             list_teams = [team_min(i) for i in response_list]
             cache_dict[flag] = list_teams
     list_teams = cache_dict.get(flag)
-    return context.bot.send_message(
+    return send_text_message(
+        context=context,
         chat_id=chat.id,
         text=(
             'Список текущих команд NBA:\n\n{}'.format('\n'.join(list_teams))
         ),
-        reply_markup=button,
-        parse_mode='Markdown'
+        reply_markup=telegram.ReplyKeyboardMarkup(
+            [['В начало']],
+            resize_keyboard=True
+        )
     )
 
 
@@ -277,7 +408,6 @@ def preview_statistics(update, context):
     answer = update.message.text
     flag_dict = context.user_data.get('statistics')
     button = [['Назад'], ['В начало']]
-    text = 'Что-то пошло не так'
 
     if flag_dict is not None:
         count = len(flag_dict)
@@ -310,14 +440,14 @@ def preview_statistics(update, context):
         )
         context.user_data['statistics'] = []
 
-    return context.bot.send_message(
+    return send_text_message(
+        context=context,
         chat_id=chat.id,
         text=text,
         reply_markup=telegram.ReplyKeyboardMarkup(
             button,
             resize_keyboard=True
-        ),
-        parse_mode = 'Markdown'
+        )
     )
 
 
@@ -337,25 +467,20 @@ def view_statistics(update, context):
     """
     endpoint = f'{ENDPOINT}stats'
     chat = update.effective_chat
-    button = telegram.ReplyKeyboardMarkup(
-        [['В начало']],
-        resize_keyboard=True
-    )
+    button = [['В начало']]
+    text='Статистики за данный период не найдено'
     player = context.user_data.get('player')
-    if player is not None:
+    if player:
         player_id, first_name, last_name = player[0], player[1], player[2]
     user_data = context.user_data.get('statistics')
     game_id, playoff, season = user_data[0], user_data[1], user_data[2]
     params ={
         'per_page': 5,
         'player_ids': player_id,
-        'postseason': playoff
+        'postseason': playoff,
+        'game_ids': game_id,
+        'seasons': season
     }
-
-    if game_id:
-        params.update({'game_ids': game_id})
-    if season:
-        params.update({'seasons': season})
 
     if not isinstance(season, str):
         if not user_data[3]:
@@ -379,11 +504,7 @@ def view_statistics(update, context):
         result = [statistics_per_game(i) for i in response_list]
         if pages_count > 1:
             page = pages_count
-            button = telegram.ReplyKeyboardMarkup(
-                [['Следующие игры'],
-                ['В начало']],
-                resize_keyboard=True
-            )
+            button = [['Следующие игры'], ['В начало']]
             context.user_data['current_endpoint'] = final_url
             context.user_data['current_page'] = page
             params.update({'page': page})
@@ -396,20 +517,19 @@ def view_statistics(update, context):
                 'Количество игр в выборке: *{}*\n\n{}').format(
             first_name, last_name, games_count, '\n'.join(reversed(result))
         )
-        return context.bot.send_message(
-            chat_id=chat.id,
-            text=text,
-            reply_markup=button,
-            parse_mode='Markdown'
-        )
-    return context.bot.send_message(
+
+    return send_text_message(
+        context=context,
         chat_id=chat.id,
-        text='Статистики за данный период не найдено',
-        reply_markup=button
+        text=text,
+        reply_markup=telegram.ReplyKeyboardMarkup(
+            button,
+            resize_keyboard=True
+        )
     )
 
 
-def statistics_season(update, context):
+def view_season_statistics(update, context):
     """
     Функция возвращает пользователю данные статистики игрока 
     за конкретный сезон. 
@@ -422,10 +542,17 @@ def statistics_season(update, context):
     endpoint = f'{ENDPOINT}season_averages'
     chat = update.effective_chat
     button = [['В начало']]
+    text = (
+        'Введите сезон, в пределах которого '
+        'Вас интересует статистика игрока.\n'
+        'К примеру, если требуется статистика игрока '
+        'за сезон 2016-2017 ввести нужно - "*2016*".\n'
+        'Запрос должен содержать только четыре цифры.'
+    )
     answer = update.message.text
     flag_dict = context.user_data.get('average')
     player = context.user_data.get('player')
-    if player is not None:
+    if player:
         player_id, first_name, last_name = player[0], player[1], player[2]
 
     if flag_dict is not None and answer != 'Выбрать другой сезон':
@@ -442,38 +569,24 @@ def statistics_season(update, context):
                 result = statistics_per_season(response)
                 text = (f'Статистика игрока *{first_name} {last_name}*:'
                         f'\n\n{result}')
-                button = telegram.ReplyKeyboardMarkup(
-                    [['Выбрать другой сезон', 'Статистика по играм'],
-                    ['В начало']],
-                    resize_keyboard=True
-                )
-                return context.bot.send_message(
-                    chat_id=chat.id,
-                    text=text,
-                    reply_markup=button,
-                    parse_mode='Markdown'
-                )
+                button = [
+                    ['Выбрать другой сезон', 'Статистика по играм'],
+                    ['В начало']
+                ]
         else:
-            text = ('Убедитесь что Вы ввели верный запрос')
+            text = ('Убедитесь, что Вы ввели верный запрос')
 
     else:
-        text = (
-            'Введите сезон, в пределах которого '
-            'Вас интересует статистика игрока.\n'
-            'К примеру, если требуется статистика игрока '
-            'за сезон 2016-2017 ввести нужно - "*2016*".\n'
-            'Запрос должен содержать только четыре цифры.'
-        )
         context.user_data['average'] = []
 
-    return context.bot.send_message(
+    return send_text_message(
+        context=context,
         chat_id=chat.id,
         text=text,
         reply_markup=telegram.ReplyKeyboardMarkup(
             button,
             resize_keyboard=True
-        ),
-        parse_mode = 'Markdown'
+        )
     )
 
 
@@ -492,7 +605,6 @@ def preview_games(update, context):
     answer = update.message.text
     flag_dict = context.user_data.get('games')
     button = [['Назад'], ['В начало']]
-    text = 'Что-то пошло не так'
 
     if flag_dict is not None:
         count = len(flag_dict)
@@ -519,18 +631,18 @@ def preview_games(update, context):
             button = VIEW_GAMES.get(count).get('button')
 
     else:
+        text = 'Какие игры Вас интересуют?'
         button = [['Только плей-офф'], ['Все игры'], ['В начало']]
-        text = 'Выберите тип игр'
         context.user_data['games'] = []
 
-    return context.bot.send_message(
+    return send_text_message(
+        context=context,
         chat_id=chat.id,
         text=text,
         reply_markup=telegram.ReplyKeyboardMarkup(
             button,
             resize_keyboard=True
-        ),
-        parse_mode = 'Markdown'
+        )
     )
 
 
@@ -548,21 +660,16 @@ def view_games(update, context):
     """
     endpoint = f'{ENDPOINT}games'
     chat = update.effective_chat
-    button = telegram.ReplyKeyboardMarkup(
-        [['В начало']],
-        resize_keyboard=True
-    )
+    button = [['В начало']]
+    text='Игр за данный период не найдено'
     user_data = context.user_data.get('games')
     playoff, team_id, season = user_data[0], user_data[1], user_data[2]
     params ={
         'per_page': 5,
-        'postseason': playoff
+        'postseason': playoff,
+        'team_ids': team_id,
+        'seasons': season
     }
-
-    if team_id:
-        params.update({'team_ids': team_id})
-    if season:
-        params.update({'seasons': season})
 
     if not isinstance(season, str):
         if not user_data[3]:
@@ -586,11 +693,7 @@ def view_games(update, context):
         result = [game_view(i) for i in response_list]
         if pages_count > 1:
             page = pages_count
-            button = telegram.ReplyKeyboardMarkup(
-                [['Следующие игры'],
-                ['В начало']],
-                resize_keyboard=True
-            )
+            button = [['Следующие игры'], ['В начало']]
             context.user_data['current_endpoint'] = final_url
             context.user_data['current_page'] = page
             params.update({'page': page})
@@ -602,16 +705,15 @@ def view_games(update, context):
         text = ('Количество игр в выборке: *{}*\nСписок игр:\n{}'.format(
                 games_count, '\n'.join(reversed(result))
         ))
-        return context.bot.send_message(
-            chat_id=chat.id,
-            text=text,
-            reply_markup=button,
-            parse_mode='Markdown'
-        )
-    return context.bot.send_message(
+ 
+    return send_text_message(
+        context=context,
         chat_id=chat.id,
-        text='Игр за данный период не найдено',
-        reply_markup=button
+        text=text,
+        reply_markup=telegram.ReplyKeyboardMarkup(
+            button,
+            resize_keyboard=True
+        )
     )
 
 
@@ -662,18 +764,18 @@ def flipp_pages(update, context):
                 games_count, '\n'.join(reversed(result))
             ))
  
-    return context.bot.send_message(
+    return send_text_message(
+        context=context,
         chat_id=chat.id,
         text=text,
         reply_markup=telegram.ReplyKeyboardMarkup(
             button,
             resize_keyboard=True
-        ),
-        parse_mode='Markdown'
+        )
     )
 
 
-updater.dispatcher.add_handler(CommandHandler('start', head_page))
-updater.dispatcher.add_handler(MessageHandler(Filters.all, answer_hub))
+updater.dispatcher.add_handler(CommandHandler('start', get_head_page))
+updater.dispatcher.add_handler(MessageHandler(Filters.all, check_answer))
 updater.start_polling(poll_interval=5.0)
 updater.idle()
