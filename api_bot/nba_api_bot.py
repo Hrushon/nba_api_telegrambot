@@ -12,7 +12,10 @@ from dotenv import load_dotenv
 from telegram.ext import CommandHandler, Filters, MessageHandler, Updater
 
 from constants import VIEW_GAMES, VIEW_STATIX
-from models import game_view, player, team_min, statistics, statistics_per_game
+from models import (
+    game_view, player, team_min,
+    statistics_per_season, statistics_per_game
+)
 from validator import validator
 
 
@@ -34,14 +37,18 @@ handler.setFormatter(formatter)
 logger.addHandler(handler)
 
 
-bot = telegram.Bot(token=BOT_TOKEN) # создание экземпляра бота
-updater = Updater(token=BOT_TOKEN) # создание экземпляра для проверки входящих 
+bot = telegram.Bot(token=BOT_TOKEN)
+updater = Updater(token=BOT_TOKEN)
 
 cache_dict = {}
 
 
 def answer_hub(update, context):
-    text = update['message']['text']
+    """
+    В зависимости от сообщения пользователя возвращает функцию обработчик.
+    Если не выбран ни один обработчик сообщения - возвращает начальное меню.
+    """
+    text = update.message.text
     if text == 'В начало':
         context.user_data.clear()
         return head_page(update, context, False)
@@ -69,6 +76,12 @@ def answer_hub(update, context):
 
 
 def head_page(update, context, start=True):
+    """
+    Функция возвращает главную страницу (начальное меню).
+    Немного видоизменяется в зависимости от типа сообщения.
+    По умолчанию возвращает ответ на команду /start с текстом приветствия.
+    При вызове от MessageHandler получает аргумент start=False.
+    """
     chat = update.effective_chat
     name = update.message.chat.first_name
     text = f'Чем я могу Вам помочь, {name}?'
@@ -86,30 +99,47 @@ def head_page(update, context, start=True):
 
 
 def back_to_the_future(update, context):
-    statictics_flag = context.user_data.get('statistics')
-    games_flag = context.user_data.get('games')
+    """
+    Функция возврата на один шаг назад в диалоговом меню.
+    Вызывается в случае нажатия пользователем кнопки 'Назад'.
+    При нахождении пользователя в диалоговом меню 
+    'Игры' или 'Игроки и статистика' возвращает пользователя к предыдущему
+    этапу выбора ответа.
+    В иных случаях вызывает функцию возврата главного меню.
+    """
+    back_func_choice = {
+        'games': preview_games,
+        'statistics': preview_statistics
+    }
 
-    if statictics_flag is not None:
-        count = len(statictics_flag)
-        if count != 0:
-            statictics_flag.pop()
-        else:
-            context.user_data.pop('statistics')
-        return preview_statistics(update, context)
-    if games_flag is not None:
-        count = len(games_flag)
-        if count != 0:
-            games_flag.pop()
-        else:
-            context.user_data.pop('games')
-        return preview_games(update, context)
+    for item in ('games', 'statistics'):
+        flag = context.user_data.get(item)
+        if flag is not None:
+            count = len(flag)
+            if count != 0:
+                flag.pop()
+            else:
+                context.user_data.pop(item)
+            return back_func_choice[item](update, context)            
 
     return head_page(update, context)
 
 
 def search_player(update, context):
+    """
+    Функция поиска игрока. Выполняет поиск игрока по имени на латинице. 
+    При необходимости уточняет запрос. Валидация введенного имени происходит 
+    в функции validator(). 
+    JSON-ответ обрабатывает с помощью функции player() модуля models. 
+    Полученные данные игрока (ID, first_name, last_name) сохраняет в 
+    словарь user_data объекта context для возможности использования 
+    в других функциях.
+    По итогу возвращает пользователю данные игрока с фотографией 
+    (но сервис API по поиску фотографий что-то стал отваливаться) или 
+    без неё и предлагает ознакомиться со статистикой игрока.
+    """
     chat = update.effective_chat
-    answer = (update['message']['text']).rstrip()
+    answer = update.message.text
     flag_dict = context.user_data.get('player')
     text = 'Что-то пошло не так!'
 
@@ -173,13 +203,13 @@ def search_player(update, context):
                 )
 
         else:
-            text = ('Попробуйте уточнить запрос. Ничего не найдено.\n'
+            text = ('Введенный запрос не прошел проверку.\n'
                    'Убедитесь что Вы ввели верный запрос на латинице')
 
     else:
         text = (
             'Введите имя игрока, которого Вы хотите найти. '
-            'Запрос должен быть на латинице.'
+            '*Запрос должен быть на латинице*.'
         )
         context.user_data['player'] = []
 
@@ -195,12 +225,21 @@ def search_player(update, context):
 
 
 def view_teams(update, context):
+    """
+    Функция отображения списка текущих команд НБА.
+    В случае отсутствия списка команд в 'кэше' достает список команд из 
+    запроса к API. В остальных случаях - достает из 'кэша'.
+    Список в 'кэше' обновляется каждый месяц. 
+    JSON-ответ обрабатывает с помощью функции team_min() модуля models.
+    """
     chat = update.effective_chat
     button = telegram.ReplyKeyboardMarkup(
         [['В начало']],
         resize_keyboard=True
     )
-    if cache_dict.get('list_teams') is None:
+    date = datetime.now()
+    flag = f'list_teams_{date.month}_{date.year}'
+    if cache_dict.get(flag) is None:
         response = requests.get(
             f'{ENDPOINT}/teams'
         )
@@ -209,8 +248,8 @@ def view_teams(update, context):
         teams_count = response.get('meta').get('total_count')
         if teams_count and response_list:
             list_teams = [team_min(i) for i in response_list]
-            cache_dict['list_teams'] = list_teams
-    list_teams = cache_dict.get('list_teams')
+            cache_dict[flag] = list_teams
+    list_teams = cache_dict.get(flag)
     return context.bot.send_message(
         chat_id=chat.id,
         text=(
@@ -222,11 +261,21 @@ def view_teams(update, context):
 
 
 def preview_statistics(update, context):
+    """
+    Функция возвращает этапы диалога с пользователем для уточнения параметров 
+    выбора статистики игрока.
+    По результатам диалога в словаре user_data объекта context создается 
+    список параметров с ключом 'statistics', который будет использован 
+    функцией view_statistics(). Список вопросов, уточняющих вопросов и 
+    наборы кнопок диалогового меню находятся в словаре VIEW_STATIX 
+    модуля constants. Ответы пользователя на уточняющие вопросы проходят 
+    валидацию в функции validator().
+    """
     chat = update.effective_chat
-    answer = (update['message']['text']).rstrip()
+    answer = update.message.text
     flag_dict = context.user_data.get('statistics')
     button = [['Назад'], ['В начало']]
-    text = ''
+    text = 'Что-то пошло не так'
 
     if flag_dict is not None:
         count = len(flag_dict)
@@ -245,17 +294,17 @@ def preview_statistics(update, context):
                 return view_statistics(update, context)
 
         else:
-            text = 'Попробуйте уточнить запрос. Ничего не найдено.'
+            text = 'Попробуйте уточнить запрос. Ответа не найдено.'
 
-        if not text or answer == 'Назад':
+        if text is None or answer == 'Назад':
             text = VIEW_STATIX.get(count).get('text')
             button = VIEW_STATIX.get(count).get('button')
 
     else:
         button = [['Да', 'Нет'], ['В начало']]
         text = (
-            'Вы знаете ID игры и хотите посмотреть детали ее статистики?\n'
-            '_ID можно узнать в разделе "Игры"_'
+            'Вы знаете ID игры и хотите посмотреть детали ее статистики?\n\n'
+            '_ID игры можно узнать в разделе "Игры"_'
         )
         context.user_data['statistics'] = []
 
@@ -271,6 +320,19 @@ def preview_statistics(update, context):
 
 
 def view_statistics(update, context):
+    """
+    Функция отображения статистики игрока по играм.
+    Получает данные из user_data объекта context об игроке и 
+    параметрах выборки. 
+    Создает из параметров запрос, обрабатывает ответ и предоставляет его 
+    пользователю.
+    JSON-ответ обрабатывает с помощью функции statistics_per_game() 
+    модуля models.
+    В случае большого количества игр предоставляет пользователю 
+    возможность листания страниц через функцию flipp_pages(). 
+    Для этого сохраняет в словарь user_data объекта context две 
+    записи, содержащие эндпоинт и текущую страницу.
+    """
     chat = update.effective_chat
     button = telegram.ReplyKeyboardMarkup(
         [['В начало']],
@@ -289,7 +351,6 @@ def view_statistics(update, context):
         final_url += f'&game_ids[]={game_id}'
     if season:
         final_url += f'&seasons[]={season}'
-
 
     if not isinstance(season, str):
         if not user_data[3]:
@@ -343,9 +404,18 @@ def view_statistics(update, context):
 
 
 def statistics_season(update, context):
+    """
+    Функция возвращает пользователю данные статистики игрока 
+    за конкретный сезон. 
+    Данные об игроке получает из словаря user_data объекта 
+    context. Валидацию ответа пользователя производит с помощью функции 
+    validator().
+    JSON-ответ обрабатывает с помощью функции statistics_per_season() 
+    модуля models.
+    """
     chat = update.effective_chat
     button = [['В начало']]
-    answer = (update['message']['text']).rstrip()
+    answer = update.message.text
     flag_dict = context.user_data.get('average')
     if context.user_data.get('player') is not None:
         player_id = context.user_data.get('player')[0]
@@ -363,8 +433,9 @@ def statistics_season(update, context):
             response_list = response.get('data')
             if response_list:
                 response = response_list[0]
-                result = statistics(response)
-                text = f'Статистика игрока *{first_name} {last_name}*:\n\n{result}'
+                result = statistics_per_season(response)
+                text = (f'Статистика игрока *{first_name} {last_name}*:'
+                        f'\n\n{result}')
                 button = telegram.ReplyKeyboardMarkup(
                     [['Выбрать другой сезон', 'Статистика по играм'],
                     ['В начало']],
@@ -401,11 +472,21 @@ def statistics_season(update, context):
 
 
 def preview_games(update, context):
+    """
+    Функция возвращает этапы диалога с пользователем для уточнения параметров 
+    выборки отображения игр.
+    По результатам диалога в словаре user_data объекта context создается 
+    список параметров с ключом 'games', который будет использован функцией 
+    view_games(). Список вопросов, уточняющих вопросов и наборы кнопок 
+    диалогового меню находятся в словаре VIEW_GAMES модуля constants. 
+    Ответы пользователя на уточняющие вопросы проходят валидацию 
+    в функции validator().
+    """
     chat = update.effective_chat
-    answer = (update['message']['text']).rstrip()
+    answer = update.message.text
     flag_dict = context.user_data.get('games')
     button = [['Назад'], ['В начало']]
-    text = ''
+    text = 'Что-то пошло не так'
 
     if flag_dict is not None:
         count = len(flag_dict)
@@ -427,10 +508,9 @@ def preview_games(update, context):
             text = ('Попробуйте уточнить запрос. '
                    'По Вашему запросу ничего не найдено.')
 
-        if not text or answer == 'Назад':
+        if text is None or answer == 'Назад':
             text = VIEW_GAMES.get(count).get('text')
             button = VIEW_GAMES.get(count).get('button')
-
 
     else:
         button = [['Только плей-офф'], ['Все игры'], ['В начало']]
@@ -449,6 +529,17 @@ def preview_games(update, context):
 
 
 def view_games(update, context):
+    """
+    Функция отображения игр в рамках выборки пользователя.
+    Получает данные из user_data объекта context о параметрах выборки. 
+    Создает из параметров запрос, обрабатывает ответ и предоставляет его 
+    пользователю. 
+    JSON-ответ обрабатывает с помощью функции game_view() модуля models.
+    В случае большого количества игр предоставляет пользователю 
+    возможность 'листания страниц' через функцию flipp_pages(). 
+    Для этого сохраняет в словарь user_data объекта context две 
+    записи, содержащие эндпоинт и текущую страницу.
+    """
     chat = update.effective_chat
     button = telegram.ReplyKeyboardMarkup(
         [['В начало']],
@@ -515,9 +606,18 @@ def view_games(update, context):
 
 
 def flipp_pages(update, context):
+    """
+    Функция позволяет пользователю 'листать страницы' в случае 
+    получения большого количества игр по результатам выборки.
+    Необходимые параметры: эндпоинт и текущую страницу получает 
+    из словаря user_data объекта context. Оттуда же достает 
+    сведения о типе отображаемых данных - 'статистика игрока' 
+    или 'список игр' - для вызова необходимой функции обработки 
+    и представления полученной информации.
+    """
     text = 'Что-то не так'
     chat = update.effective_chat
-    answer = (update['message']['text']).rstrip()
+    answer = update.message.text
     button = [['Предыдущие игры'], ['Следующие игры'], ['В начало']]
     final_url = context.user_data.get('current_endpoint')
     current_page = context.user_data.get('current_page')

@@ -1,4 +1,7 @@
-"""Модели для человекочитаемого вывода информации в ответ на запрос."""
+"""
+Модели для обработки JSON-ответов на запросы к API и 
+предоставления 'человекочитаемой' информации.
+"""
 import requests
 from datetime import datetime as DT
 import pytz
@@ -17,7 +20,10 @@ teams_list = response.json().get('data')
 
 
 def player(response):
-    """Модель для профиля игрока."""
+    """
+    Модель возвращает информацию об игроке.
+    Переводит единицы измерения в систему СИ.
+    """
     id = response.get('id')
     first_name = response.get('first_name')
     last_name = response.get('last_name')
@@ -53,7 +59,9 @@ def player(response):
 
 
 def team_max(response):
-    """Модель для профиля команды."""
+    """
+    Модель возвращает инофрмацию о команде в полном объеме.
+    """
     id = response.get('id')
     abbreviation = response.get('abbreviation')
     city = response.get('city')
@@ -79,7 +87,10 @@ def team_max(response):
 
 
 def team_min(response):
-    """Модель для профиля команды в мини-варианте."""
+    """
+    Модель возвращает инофрмацию о команде в 'сжатом' объеме.
+    Используется для создания списка текущих команд.
+    """
     id = response.get('id')
     abbreviation = response.get('abbreviation')
     city = response.get('city')
@@ -103,8 +114,11 @@ def team_min(response):
     return team_str
 
 
-def statistics(response):
-    """Модель для сезонной статистики игрока."""
+def statistics_per_season(response):
+    """
+    Модель возвращает информацию с обобщенной статистикой игрока 
+    за определенный сезон.
+    """
     games_played = response.get('games_played')
     player_id = response.get('player_id')
     season = response.get('season')
@@ -162,7 +176,10 @@ def statistics(response):
 
 
 def statistics_per_game(response):
-    """Модель для сезонной статистики по играм."""
+    """
+    Модель возвращает информацию со статистикой игрока 
+    в отдельной игре.
+    """
     id = response.get('id')
     ast = response.get('ast')
     blk = response.get('blk')
@@ -254,7 +271,11 @@ def statistics_per_game(response):
 
 
 def game_view(response):
-    """Модель для представления отдельной игры."""
+    """
+    Модель возвращает информацию об отдельных играх, 
+    их состоянии и результатах. 
+    Переводит время из восточно-американского в московкое.
+    """
     id = response.get('id')
     date = response.get('date').split('T')[0]
     date = date.split('-')
