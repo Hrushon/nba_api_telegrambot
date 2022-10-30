@@ -3,65 +3,11 @@ import requests
 from datetime import datetime as DT
 import pytz
 
-
-
-FOOT_COEFF = 30.48
-INCH_COEFF = 2.54
-PERC_COEFF = 100
-POUND_COEFF = 0.45
-
-PLAYERS_ROLES = {
-    'G': 'защитник',
-    'F': 'форвард',
-    'C': 'центровой'
-}
-
-CONFERENCE_KIND = {
-    'West': 'Западной',
-    'East': 'Восточной'
-}
-
-CITIES_DICT = {
-    'Los Angeles': 'Лос-Анджелес',
-    'New York': 'Нью-Йорк',
-    'Atlanta': 'Атланта',
-    'Boston': 'Бостон',
-    'Brooklyn': 'Нью-Йорк',
-    'Charlotte': 'Шарлотт',
-    'Chicago': 'Чикаго',
-    'Cleveland': 'Кливленд',
-    'Dallas': 'Даллас',
-    'Denver': 'Денвер',
-    'Detroit': 'Детройт',
-    'Golden State': 'Сан-Франциско',
-    'Houston': 'Хьюстон',
-    'Indiana': 'Индианаполис',
-    'LA': 'Лос-Анджелес',
-    'Memphis': 'Мемфис',
-    'Miami': 'Майами',
-    'Milwaukee': 'Милуоки',
-    'Minnesota': 'Миннеаполис',
-    'New Orleans': ' Новый Орлеан',
-    'Oklahoma City': 'Оклахома-Сити',
-    'Orlando': 'Орландо',
-    'Philadelphia': 'Филадельфия',
-    'Phoenix': 'Финикс',
-    'Portland': 'Портленд',
-    'Sacramento': 'Сакраменто',
-    'San Antonio': 'Сан-Антонио',
-    'Toronto': 'Торонто',
-    'Utah': 'Юта',
-    'Washington': 'Вашингтон',
-}
-
-DIVISION_DICT = {
-    'Atlantic': 'Атлантический',
-    'Northwest': 'Северо-Западный',
-    'Pacific': 'Тихоокеанский',
-    'Central': 'Центральный',
-    'Southwest': 'Юго-Западный',
-    'Southeast': 'Юго-Восточный'
-}
+from constants import (
+    FOOT_COEFF, INCH_COEFF, PERC_COEFF,
+    POUND_COEFF, PLAYERS_ROLES, CONFERENCE_KIND,
+    CITIES, DIVISIONS
+)
 
 TZ1 = pytz.timezone('US/Eastern')
 TZ2 = pytz.timezone('Europe/Moscow')
@@ -123,10 +69,10 @@ def team_max(response):
     ).format(
         full_name,
         name,
-        CITIES_DICT.get(city, city),
+        CITIES.get(city, city),
         id,
         abbreviation,
-        DIVISION_DICT.get(division),
+        DIVISIONS.get(division),
         CONFERENCE_KIND.get(conference, conference)
     )
     return team_str
@@ -150,8 +96,8 @@ def team_min(response):
         id,
         full_name,
         abbreviation,
-        CITIES_DICT.get(city, city),
-        DIVISION_DICT.get(division),
+        CITIES.get(city, city),
+        DIVISIONS.get(division),
         CONFERENCE_KIND.get(conference, conference)
     )
     return team_str
