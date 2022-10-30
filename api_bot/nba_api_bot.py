@@ -138,6 +138,8 @@ def search_player(update, context):
     (но сервис API по поиску фотографий что-то стал отваливаться) или 
     без неё и предлагает ознакомиться со статистикой игрока.
     """
+    endpoint = f'{ENDPOINT}players'
+    params = {'per_page': '25'}
     chat = update.effective_chat
     answer = update.message.text
     flag_dict = context.user_data.get('player')
@@ -145,10 +147,9 @@ def search_player(update, context):
 
     if flag_dict is not None:
         if validator(update, context):
-            answer = '_'.join((answer).split())
-            response = requests.get(
-                f'{ENDPOINT}players?per_page=25&search={answer}'
-            )
+            answer = '_'.join((answer).split(' '))
+            params.update({'search': answer})
+            response = requests.get(endpoint, params=params)
             response = response.json()
             response_list = response.get('data')
             player_count = response.get('meta').get('total_count')
@@ -232,6 +233,7 @@ def view_teams(update, context):
     Список в 'кэше' обновляется каждый месяц. 
     JSON-ответ обрабатывает с помощью функции team_min() модуля models.
     """
+    endpoint = f'{ENDPOINT}teams'
     chat = update.effective_chat
     button = telegram.ReplyKeyboardMarkup(
         [['В начало']],
@@ -240,9 +242,7 @@ def view_teams(update, context):
     date = datetime.now()
     flag = f'list_teams_{date.month}_{date.year}'
     if cache_dict.get(flag) is None:
-        response = requests.get(
-            f'{ENDPOINT}/teams'
-        )
+        response = requests.get(endpoint)
         response = response.json()
         response_list = response.get('data')
         teams_count = response.get('meta').get('total_count')
@@ -322,7 +322,7 @@ def preview_statistics(update, context):
 def view_statistics(update, context):
     """
     Функция отображения статистики игрока по играм.
-    Получает данные из user_data объекта context об игроке и 
+    Получает данные из словаря user_data объекта context об игроке и 
     параметрах выборки. 
     Создает из параметров запрос, обрабатывает ответ и предоставляет его 
     пользователю.
@@ -333,24 +333,27 @@ def view_statistics(update, context):
     Для этого сохраняет в словарь user_data объекта context две 
     записи, содержащие эндпоинт и текущую страницу.
     """
+    endpoint = f'{ENDPOINT}stats'
     chat = update.effective_chat
     button = telegram.ReplyKeyboardMarkup(
         [['В начало']],
         resize_keyboard=True
     )
-    if context.user_data.get('player') is not None:
-        player_id = context.user_data.get('player')[0]
-        first_name = context.user_data.get('player')[1]
-        last_name = context.user_data.get('player')[2]
+    player = context.user_data.get('player')
+    if player is not None:
+        player_id, first_name, last_name = player[0], player[1], player[2]
     user_data = context.user_data.get('statistics')
     game_id, playoff, season = user_data[0], user_data[1], user_data[2]
-    final_url = (f'{ENDPOINT}stats?player_ids[]={player_id}'
-                 f'&per_page=5&postseason={playoff}')
-    
+    params ={
+        'per_page': 5,
+        'player_ids': player_id,
+        'postseason': playoff
+    }
+
     if game_id:
-        final_url += f'&game_ids[]={game_id}'
+        params.update({'game_ids': game_id})
     if season:
-        final_url += f'&seasons[]={season}'
+        params.update({'seasons': season})
 
     if not isinstance(season, str):
         if not user_data[3]:
@@ -358,12 +361,13 @@ def view_statistics(update, context):
             start_date, end_date = *user_data,
             start_date = '-'.join(reversed(start_date.split('-')))
             end_date = '-'.join(reversed(end_date.split('-')))
-            final_url += f'&start_date={start_date}&end_date={end_date}'
+            pairs = {'start_date': start_date, 'end_date': end_date}
+            params.update(pairs)
         else:
             date = user_data[4]
-            final_url += f'&dates[]={date}'
+            params.update({'dates': date})
 
-    response = requests.get(final_url)
+    response = requests.get(endpoint, params=params)
     final_url = response.url
     response = response.json()
     response_list = response.get('data')
@@ -380,8 +384,8 @@ def view_statistics(update, context):
             )
             context.user_data['current_endpoint'] = final_url
             context.user_data['current_page'] = page
-            final_url += f'&page={page}'
-            response = requests.get(final_url)
+            params.update({'page': page})
+            response = requests.get(endpoint, params=params)
             response = response.json()
             response_list = response.get('data')
             result = [statistics_per_game(i) for i in response_list]
@@ -413,22 +417,22 @@ def statistics_season(update, context):
     JSON-ответ обрабатывает с помощью функции statistics_per_season() 
     модуля models.
     """
+    endpoint = f'{ENDPOINT}season_averages'
     chat = update.effective_chat
     button = [['В начало']]
     answer = update.message.text
     flag_dict = context.user_data.get('average')
-    if context.user_data.get('player') is not None:
-        player_id = context.user_data.get('player')[0]
-        first_name = context.user_data.get('player')[1]
-        last_name = context.user_data.get('player')[2]
+    player = context.user_data.get('player')
+    if player is not None:
+        player_id, first_name, last_name = player[0], player[1], player[2]
 
     if flag_dict is not None and answer != 'Выбрать другой сезон':
         if validator(update, context):
-            response = requests.get(
-                '{}season_averages?season={}&player_ids[]={}'.format(
-                    ENDPOINT, answer, player_id
-                )
-            )
+            params = {
+                'season': answer,
+                'player_ids': player_id
+            }
+            response = requests.get(endpoint, params=params)
             response = response.json()
             response_list = response.get('data')
             if response_list:
@@ -540,6 +544,7 @@ def view_games(update, context):
     Для этого сохраняет в словарь user_data объекта context две 
     записи, содержащие эндпоинт и текущую страницу.
     """
+    endpoint = f'{ENDPOINT}games'
     chat = update.effective_chat
     button = telegram.ReplyKeyboardMarkup(
         [['В начало']],
@@ -547,13 +552,15 @@ def view_games(update, context):
     )
     user_data = context.user_data.get('games')
     playoff, team_id, season = user_data[0], user_data[1], user_data[2]
-    final_url = f'{ENDPOINT}games?per_page=5&postseason={playoff}'
-    
-    if team_id:
-        final_url += f'&team_ids[]={team_id}'
-    if season:
-        final_url += f'&seasons[]={season}'
+    params ={
+        'per_page': 5,
+        'postseason': playoff
+    }
 
+    if team_id:
+        params.update({'team_ids': team_id})
+    if season:
+        params.update({'seasons': season})
 
     if not isinstance(season, str):
         if not user_data[3]:
@@ -561,12 +568,13 @@ def view_games(update, context):
             start_date, end_date = *user_data,
             start_date = '-'.join(reversed(start_date.split('-')))
             end_date = '-'.join(reversed(end_date.split('-')))
-            final_url += f'&start_date={start_date}&end_date={end_date}'
+            pairs = {'start_date': start_date, 'end_date': end_date}
+            params.update(pairs)
         else:
             date = user_data[4]
-            final_url += f'&dates[]={date}'
+            params.update({'dates': date})
 
-    response = requests.get(final_url)
+    response = requests.get(endpoint, params=params)
     final_url = response.url
     response = response.json()
     response_list = response.get('data')
@@ -583,8 +591,8 @@ def view_games(update, context):
             )
             context.user_data['current_endpoint'] = final_url
             context.user_data['current_page'] = page
-            final_url += f'&page={page}'
-            response = requests.get(final_url)
+            params.update({'page': page})
+            response = requests.get(endpoint, params=params)
             response = response.json()
             response_list = response.get('data')
             result = [game_view(i) for i in response_list]
@@ -619,7 +627,7 @@ def flipp_pages(update, context):
     chat = update.effective_chat
     answer = update.message.text
     button = [['Предыдущие игры'], ['Следующие игры'], ['В начало']]
-    final_url = context.user_data.get('current_endpoint')
+    endpoint = context.user_data.get('current_endpoint')
     current_page = context.user_data.get('current_page')
     if answer == 'Следующие игры':
         page = current_page - 1
@@ -627,7 +635,7 @@ def flipp_pages(update, context):
         page = current_page + 1
     context.user_data['current_page'] = page
     params = {'page': page}
-    response = requests.get(final_url, params=params)
+    response = requests.get(endpoint, params=params)
     response = response.json()
     response_list = response.get('data')
     if response_list:
