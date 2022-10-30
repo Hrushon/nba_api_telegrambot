@@ -170,6 +170,7 @@ def search_player(update, context):
                     'из предложенного списка:\n_{}_'.format('\n'.join(list_name))
                 )
             elif response_list:
+                endpoint = ENDPOINT_PHOTO_SEARCH
                 response = response_list[0]
                 player_id = response.get('id')
                 first_name = response.get('first_name')
@@ -178,8 +179,9 @@ def search_player(update, context):
                 context.user_data.get('player').append(first_name)
                 context.user_data.get('player').append(last_name)
                 result = player(response)
-                info_for_photo = '{}_{}'.format(first_name, last_name)
-                photo = requests.get(f'{ENDPOINT_PHOTO_SEARCH}{info_for_photo}')
+                info_for_photo = f'nba_{first_name}_{last_name}'
+                params = {'q': info_for_photo}
+                photo = requests.get(endpoint, params=params)
                 button = telegram.ReplyKeyboardMarkup(
                     [
                         ['Статистика сезона', 'Статистика по играм'],
