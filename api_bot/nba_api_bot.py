@@ -82,17 +82,17 @@ def check_answer(update, context):
         return back_to_the_future(update, context)
     if text in ('Следующие игры', 'Предыдущие игры'):
         return flipp_pages(update, context)
-    if text == 'Статистика по играм' or context.user_data.get(
-        'statistics'
-    ) is not None:
-        return preview_statistics(update, context)
-    if text in (
-        'Статистика сезона', 'Выбор другого сезона'
-    ) or context.user_data.get('average') is not None:
-        return view_season_statistics(update, context)
     if text == 'Игроки и статистика' or context.user_data.get(
         'player'
     ) is not None:
+        if text == 'Статистика по играм' or context.user_data.get(
+            'statistics'
+        ) is not None:
+            return preview_statistics(update, context)
+        if text in (
+            'Статистика сезона', 'Выбор другого сезона'
+        ) or context.user_data.get('average') is not None:
+            return view_season_statistics(update, context)
         return search_player(update, context)
     if text == 'Команды':
         return view_teams(update, context)
@@ -152,7 +152,7 @@ def send_photo_message(
         logger.info('Бот отправил сообщение: \n%s\n$s', photo, caption)
 
 
-def check_api_answer(endpoint, params):
+def check_api_service(endpoint, params):
     """
     Посредством этой функции производятся все запросы к внешним сервисам API.
     Функция проверяет HTTP-статус полученного ответа от API-сервиса, а также 
@@ -177,7 +177,7 @@ def check_api_answer(endpoint, params):
             )
         endpoint = response.url
         response = response.json()
-        return check_response_content(response, endpoint)
+        return response, endpoint
 
 
 def check_response_content(response, endpoint):
@@ -211,7 +211,7 @@ def check_response_content(response, endpoint):
     return response
 
 
-def check_empty_response(response, endpoint):
+def check_not_empty_response(response, endpoint):
     """
     Функция проверяет все ответы API-сервисов на пустые значения для ключей
     'data' и 'meta'. При отсутствии значения 'meta' поднимает исключение.
@@ -303,17 +303,21 @@ def search_player(update, context):
     )
     button = [['В начало']]
 
-    if flag_dict is not None:
-        if validator(update, context):
-            answer = '_'.join((answer).split(' '))
-            params = {'per_page': 25, 'search': answer}
-            response = requests.get(endpoint, params=params)
-            response = response.json()
-            response_list = response.get('data')
+    if flag_dict is None:
+        context.user_data['player'] = []
+    elif not validator(update, context):
+        text = ('Введенный запрос не прошел проверку.\n'
+               'Убедитесь что Вы ввели верный запрос на латинице')
+    else:
+        answer = '_'.join((answer).split(' '))
+        params = {'per_page': 25, 'search': answer}
+        response, endpoint = check_api_service(endpoint, params)
+        response = check_response_content(response, endpoint)
+        text='К сожалению ничего не найдено. Уточните запрос'
+        if check_not_empty_response(response, endpoint):
+            response_list = response.get('data')            
             player_count = response.get('meta').get('total_count')
-            if player_count == 0:
-                text='К сожалению ничего не найдено. Уточните запрос'
-            elif player_count > 25:
+            if player_count > 25:
                 text=(
                     'Пожалуйста, уточните поиск.\n'
                     'Количество найденных игроков превышает *25*!'
@@ -329,25 +333,32 @@ def search_player(update, context):
                         '\n'.join(list_name)
                     )
                 )
-            elif response_list:
-                endpoint = ENDPOINT_PHOTO_SEARCH
+            else:
                 response = response_list[0]
                 player_id = response.get('id')
                 first_name = response.get('first_name')
                 last_name = response.get('last_name')
                 context.user_data.get('player').extend(
                     (player_id, first_name, last_name)
-                )
+                )                
                 text = player(response)
-                info_for_photo = f'nba_{first_name}_{last_name}'
-                params = {'q': info_for_photo}
-                photo = requests.get(endpoint, params=params)
                 button = [
                     ['Статистика сезона', 'Статистика по играм'],
                     ['В начало']
                 ]
-                if photo.status_code == HTTPStatus.OK:
+                endpoint = ENDPOINT_PHOTO_SEARCH
+                info_for_photo = f'nba_{first_name}_{last_name}'
+                params = {'q': info_for_photo}
+                try:
+                    response, endpoint = check_api_service(endpoint, params)
                     photo = photo.json()['results'][0]
+                except Exception as error:
+                    logger.error(
+                        'Cбой сервиса поиска фотографии '
+                        'при запросе по эндпоинту: %s '
+                        'Ошибка: %s', endpoint, error
+                    )
+                else:
                     return send_photo_message(
                         context=context,
                         chat_id=chat.id,
@@ -355,13 +366,6 @@ def search_player(update, context):
                         caption=text,
                         reply_markup=button
                     )
-
-        else:
-            text = ('Введенный запрос не прошел проверку.\n'
-                   'Убедитесь что Вы ввели верный запрос на латинице')
-
-    else:
-        context.user_data['player'] = []
 
     return send_text_message(
         context=context,
@@ -386,15 +390,21 @@ def view_teams(update, context):
     chat = update.effective_chat
     date = datetime.now()
     flag = f'list_teams_{date.month}_{date.year}'
-    if cache_dict.get(flag):
-        response = requests.get(endpoint)
-        response = response.json()
-        response_list = response.get('data')
-        teams_count = response.get('meta').get('total_count')
-        if teams_count and response_list:
+    list_teams = cache_dict.get(flag)
+
+    if not cache_dict.get(flag):
+        response, endpoint = check_api_service(endpoint)
+        response = check_response_content(response, endpoint)
+        if check_not_empty_response(response, endpoint):
+            response_list = response.get('data')
             list_teams = [team_min(i) for i in response_list]
             cache_dict[flag] = list_teams
-    list_teams = cache_dict.get(flag)
+        else:
+            logger.error(
+                'При запросе к эндпоинту: %s возвращается пустой ответ',
+                endpoint
+            )
+    
     return send_text_message(
         context=context,
         chat_id=chat.id,
@@ -424,36 +434,32 @@ def preview_statistics(update, context):
     flag_dict = context.user_data.get('statistics')
     button = [['Назад'], ['В начало']]
 
-    if flag_dict is not None:
-        count = len(flag_dict)
-
-        if answer == VIEW_STATIX.get(count).get('answer')[0]:
-            text = VIEW_STATIX.get(count).get('additional')
-            if text is None:
-                context.user_data.get('statistics').append(True)
-
-        elif answer == VIEW_STATIX.get(count).get('answer')[1]:
-            context.user_data.get('statistics').append(False)
-
-        elif validator(update, context):
-            context.user_data.get('statistics').append(answer)
-            if len(context.user_data.get('statistics')) in (1, 3, 5):
-                return view_statistics(update, context)
-
-        else:
-            text = 'Попробуйте уточнить запрос. Ответа не найдено.'
-
-        if text is None or answer == 'Назад':
-            text = VIEW_STATIX.get(count).get('text')
-            button = VIEW_STATIX.get(count).get('button')
-
-    else:
+    if flag_dict is None:
         button = [['Да', 'Нет'], ['В начало']]
         text = (
             'Вы знаете ID игры и хотите посмотреть детали ее статистики?\n\n'
             '_ID игры можно узнать в разделе "Игры"_'
         )
         context.user_data['statistics'] = []
+
+    else:
+        count = len(flag_dict)
+        if answer == VIEW_STATIX.get(count).get('answer')[0]:
+            text = VIEW_STATIX.get(count).get('additional')
+            if text is None:
+                context.user_data.get('statistics').append(True)
+        elif answer == VIEW_STATIX.get(count).get('answer')[1]:
+            context.user_data.get('statistics').append(False)
+        elif validator(update, context):
+            context.user_data.get('statistics').append(answer)
+            if len(context.user_data.get('statistics')) in (1, 3, 5):
+                return view_statistics(update, context)
+        else:
+            text = 'Попробуйте уточнить запрос. Ответа не найдено.'
+
+        if text is None or answer == 'Назад':
+            text = VIEW_STATIX.get(count).get('text')
+            button = VIEW_STATIX.get(count).get('button')
 
     return send_text_message(
         context=context,
@@ -483,10 +489,9 @@ def view_statistics(update, context):
     endpoint = f'{ENDPOINT}stats'
     chat = update.effective_chat
     button = [['В начало']]
-    text='Статистики за данный период не найдено'
+    text = 'К сожалению ничего не найдено'
     player = context.user_data.get('player')
-    if player:
-        player_id, first_name, last_name = player[0], player[1], player[2]
+    player_id, first_name, last_name = player[0], player[1], player[2]
     user_data = context.user_data.get('statistics')
     game_id, playoff, season = user_data[0], user_data[1], user_data[2]
     params ={
@@ -498,24 +503,23 @@ def view_statistics(update, context):
     }
 
     if not isinstance(season, str):
-        if not user_data[3]:
+        if user_data[3]:
+            date = user_data[4]
+            params.update({'dates': date})
+        else:
             user_data = (user_data[4]).split(' ')
             start_date, end_date = *user_data,
             start_date = '-'.join(reversed(start_date.split('-')))
             end_date = '-'.join(reversed(end_date.split('-')))
             pairs = {'start_date': start_date, 'end_date': end_date}
             params.update(pairs)
-        else:
-            date = user_data[4]
-            params.update({'dates': date})
 
-    response = requests.get(endpoint, params=params)
-    final_url = response.url
-    response = response.json()
-    response_list = response.get('data')
-    games_count = response.get('meta').get('total_count')
-    pages_count = response.get('meta').get('total_pages')
-    if response_list and games_count:
+    response, final_url = check_api_service(endpoint, params)
+    response = check_response_content(response, final_url)
+    if check_not_empty_response(response, final_url):
+        response_list = response.get('data')
+        games_count = response.get('meta').get('total_count')
+        pages_count = response.get('meta').get('total_pages')
         result = [statistics_per_game(i) for i in response_list]
         if pages_count > 1:
             page = pages_count
@@ -523,11 +527,11 @@ def view_statistics(update, context):
             context.user_data['current_endpoint'] = final_url
             context.user_data['current_page'] = page
             params.update({'page': page})
-            response = requests.get(endpoint, params=params)
-            response = response.json()
-            response_list = response.get('data')
-            result = [statistics_per_game(i) for i in response_list]
-
+            response, endpoint = check_api_service(endpoint, params)
+            response = check_response_content(response, endpoint)
+            if check_not_empty_response(response, final_url):
+                response_list = response.get('data')
+                result = [statistics_per_game(i) for i in response_list]
         text = ('Статистика игрока *{} {}* по играм:\n\n'
                 'Количество игр в выборке: *{}*\n\n{}').format(
             first_name, last_name, games_count, '\n'.join(reversed(result))
@@ -567,19 +571,24 @@ def view_season_statistics(update, context):
     answer = update.message.text
     flag_dict = context.user_data.get('average')
     player = context.user_data.get('player')
-    if player:
-        player_id, first_name, last_name = player[0], player[1], player[2]
+    player_id, first_name, last_name = player[0], player[1], player[2]
 
-    if flag_dict is not None and answer != 'Выбрать другой сезон':
-        if validator(update, context):
+    if flag_dict is None and answer == 'Выбрать другой сезон':
+        context.user_data['average'] = []
+    else:
+        if not validator(update, context):
+            text = ('Убедитесь, что Вы ввели верный запрос')
+        else:    
             params = {
                 'season': answer,
                 'player_ids': player_id
             }
-            response = requests.get(endpoint, params=params)
-            response = response.json()
-            response_list = response.get('data')
-            if response_list:
+            response, endpoint = check_api_service(endpoint, params)
+            response = check_response_content(response, endpoint)
+            if not check_not_empty_response(response, endpoint):
+                text='К сожалению ничего не найдено'
+            else:
+                response_list = response.get('data')
                 response = response_list[0]
                 result = statistics_per_season(response)
                 text = (f'Статистика игрока *{first_name} {last_name}*:'
@@ -588,11 +597,6 @@ def view_season_statistics(update, context):
                     ['Выбрать другой сезон', 'Статистика по играм'],
                     ['В начало']
                 ]
-        else:
-            text = ('Убедитесь, что Вы ввели верный запрос')
-
-    else:
-        context.user_data['average'] = []
 
     return send_text_message(
         context=context,
@@ -622,33 +626,28 @@ def preview_games(update, context):
     button = [['Назад'], ['В начало']]
 
     if flag_dict is not None:
-        count = len(flag_dict)
+        text = 'Какие игры Вас интересуют?'
+        button = [['Только плей-офф'], ['Все игры'], ['В начало']]
+        context.user_data['games'] = []
 
+    else:    
+        count = len(flag_dict)
         if answer == VIEW_GAMES.get(count).get('answer')[0]:
             text = VIEW_GAMES.get(count).get('additional')
             if text is None:
                 context.user_data.get('games').append(True)
-
         elif answer == VIEW_GAMES.get(count).get('answer')[1]:
             context.user_data.get('games').append(False)
-
         elif validator(update, context):
             context.user_data.get('games').append(answer)
             if len(context.user_data.get('games')) in (3, 5):
                 return view_games(update, context)
-
         else:
-            text = ('Попробуйте уточнить запрос. '
-                   'По Вашему запросу ничего не найдено.')
+            text = 'Попробуйте уточнить запрос. Ответа не найдено.'
 
         if text is None or answer == 'Назад':
             text = VIEW_GAMES.get(count).get('text')
             button = VIEW_GAMES.get(count).get('button')
-
-    else:
-        text = 'Какие игры Вас интересуют?'
-        button = [['Только плей-офф'], ['Все игры'], ['В начало']]
-        context.user_data['games'] = []
 
     return send_text_message(
         context=context,
@@ -676,7 +675,7 @@ def view_games(update, context):
     endpoint = f'{ENDPOINT}games'
     chat = update.effective_chat
     button = [['В начало']]
-    text='Игр за данный период не найдено'
+    text = 'К сожалению ничего не найдено'
     user_data = context.user_data.get('games')
     playoff, team_id, season = user_data[0], user_data[1], user_data[2]
     params ={
@@ -698,13 +697,12 @@ def view_games(update, context):
             date = user_data[4]
             params.update({'dates': date})
 
-    response = requests.get(endpoint, params=params)
-    final_url = response.url
-    response = response.json()
-    response_list = response.get('data')
-    games_count = response.get('meta').get('total_count')
-    pages_count = response.get('meta').get('total_pages')
-    if games_count and response_list:
+    response, final_url = check_api_service(endpoint, params)
+    response = check_response_content(response, endpoint)
+    if check_not_empty_response(response, endpoint):
+        response_list = response.get('data')
+        games_count = response.get('meta').get('total_count')
+        pages_count = response.get('meta').get('total_pages')
         result = [game_view(i) for i in response_list]
         if pages_count > 1:
             page = pages_count
@@ -712,11 +710,11 @@ def view_games(update, context):
             context.user_data['current_endpoint'] = final_url
             context.user_data['current_page'] = page
             params.update({'page': page})
-            response = requests.get(endpoint, params=params)
-            response = response.json()
-            response_list = response.get('data')
-            result = [game_view(i) for i in response_list]
-
+            response, endpoint = check_api_service(endpoint, params)
+            response = check_response_content(response, endpoint)
+            if check_not_empty_response(response, endpoint):
+                response_list = response.get('data')
+                result = [game_view(i) for i in response_list]
         text = ('Количество игр в выборке: *{}*\nСписок игр:\n{}'.format(
                 games_count, '\n'.join(reversed(result))
         ))
@@ -742,7 +740,6 @@ def flipp_pages(update, context):
     или 'список игр' - для вызова необходимой функции обработки 
     и представления полученной информации.
     """
-    text = 'Что-то не так'
     chat = update.effective_chat
     answer = update.message.text
     button = [['Предыдущие игры'], ['Следующие игры'], ['В начало']]
@@ -754,16 +751,16 @@ def flipp_pages(update, context):
         page = current_page + 1
     context.user_data['current_page'] = page
     params = {'page': page}
-    response = requests.get(endpoint, params=params)
-    response = response.json()
-    response_list = response.get('data')
-    if response_list:
+    response, endpoint = check_api_service(endpoint, params)
+    response = check_response_content(response, endpoint)
+    if check_not_empty_response(response, endpoint):
+        response_list = response.get('data')
         pages_count = response.get('meta').get('total_pages')
+        games_count = response.get('meta').get('total_count')
         if page == pages_count:
             button = [['Следующие игры'], ['В начало']]
         if page == 1:
             button = [['Предыдущие игры'], ['В начало']]
-        games_count = response.get('meta').get('total_count')
         if context.user_data.get('statistics'):
             result = [statistics_per_game(i) for i in response_list]
             first_name = context.user_data.get('player')[1]
@@ -778,7 +775,14 @@ def flipp_pages(update, context):
             text = ('Количество игр в выборке: *{}*\nСписок игр:\n{}'.format(
                 games_count, '\n'.join(reversed(result))
             ))
- 
+        else:
+            logger.error(
+                'Произошла ошибка в функции %s.\n'
+                'при обращении к эндпоинту: %s',
+                flipp_pages.__name__, endpoint
+            )
+            text = 'Что-то пошло не так. Попробуйте позднее.'
+
     return send_text_message(
         context=context,
         chat_id=chat.id,
