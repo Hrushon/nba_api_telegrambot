@@ -46,8 +46,6 @@ formatter = logging.Formatter(
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
-
-bot = telegram.Bot(token=BOT_TOKEN)
 updater = Updater(token=BOT_TOKEN)
 
 cache_dict = {}
@@ -67,6 +65,32 @@ def check_tokens():
                 'Программа принудительно остановлена.', name_token
             )
     return False
+
+
+def send_error_message(update, context):
+    """Логирует ошибки и отправляет сообщение администратору в Телеграм."""
+    text = (
+        f'Сбой при работе программы:\n{context.error}\n'
+        f'Пользователь: {update.message.chat.first_name}\n'
+        f'Чат: {update.message.chat.id}\n'
+        f'Данные: {context.user_data.items()}'
+    )
+    logger.error(text)
+    send_text_message(
+        context=context,
+        chat_id=ADMIN_ID,
+        text=text,
+        parse_mode=None
+        )
+    logger.info('Отправлено сообщение администратору об ошибке.')
+
+    send_text_message(
+        context=context,
+        chat_id=update.effective_chat.id,
+        text="Возникла непредвиденная ошибка. Мы уже разбираемся.",
+        parse_mode=None
+        )
+    logger.info('Отправлено сообщение пользователю об ошибке.')
 
 
 def check_answer(update, context):
@@ -102,7 +126,7 @@ def check_answer(update, context):
 
 
 def send_text_message(
-    context, chat_id, text, reply_markup, parse_mode='Markdown'
+    context, chat_id, text, reply_markup=None, parse_mode='Markdown'
 ):
     """
     Все текстовые сообщения пользователям в Телеграм отправляются 
@@ -120,7 +144,7 @@ def send_text_message(
         )
     except Exception as error:
         raise SendMessageFail(
-            'Сбой при отправке текстового сообщения в Телеграмм. %s', error
+            f'Сбой при отправке текстового сообщения в Телеграмм.\n{error}'
         )
     else:
         logger.info('Бот отправил сообщение: %s', text)
@@ -146,7 +170,7 @@ def send_photo_message(
         )
     except Exception as error:
         raise SendMessageFail(
-            'Сбой при отправке сообщения с фото в Телеграмм. %s', error
+            f'Сбой при отправке сообщения с фото в Телеграмм.\n{error}'
         )
     else:
         logger.info('Бот отправил сообщение: \n%s\n$s', photo, caption)
@@ -163,17 +187,16 @@ def check_api_service(endpoint, params):
         response = requests.get(endpoint, params=params)
     except Exception as error:
         raise ApiRequestTrouble(
-            'Сбой при запросе к эндпоинту %s.'
-            'Параметры запроса: %s.'
-            'Ошибка: %s', endpoint, params, error
+            f'Сбой при запросе к эндпоинту {endpoint}.\n'
+            f'Параметры запроса: {params}.\n'
+            f'Ошибка: {error}.'
         )
     else:
         if response.status_code != HTTPStatus.OK:
             raise ApiStatusTrouble(
-                'Сбой при запросе к эндпоинту %s. '
-                'Код ответа API: %s.'
-                'Параметры запроса: %s.',
-                endpoint, response.status_code, params
+                f'Сбой при запросе к эндпоинту {endpoint}.\n'
+                f'Код ответа API: {response.status_code}.\n'
+                f'Параметры запроса: {params}.'
             )
         endpoint = response.url
         response = response.json()
@@ -433,6 +456,7 @@ def preview_statistics(update, context):
     answer = update.message.text
     flag_dict = context.user_data.get('statistics')
     button = [['Назад'], ['В начало']]
+    text = None
 
     if flag_dict is None:
         button = [['Да', 'Нет'], ['В начало']]
@@ -624,8 +648,9 @@ def preview_games(update, context):
     answer = update.message.text
     flag_dict = context.user_data.get('games')
     button = [['Назад'], ['В начало']]
+    text = None
 
-    if flag_dict is not None:
+    if flag_dict is None:
         text = 'Какие игры Вас интересуют?'
         button = [['Только плей-офф'], ['Все игры'], ['В начало']]
         context.user_data['games'] = []
@@ -796,5 +821,6 @@ def flipp_pages(update, context):
 
 updater.dispatcher.add_handler(CommandHandler('start', get_head_page))
 updater.dispatcher.add_handler(MessageHandler(Filters.all, check_answer))
+updater.dispatcher.add_error_handler(send_error_message)
 updater.start_polling(poll_interval=5.0)
 updater.idle()
