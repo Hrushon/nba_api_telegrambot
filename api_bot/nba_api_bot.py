@@ -183,7 +183,7 @@ def check_api_answer(endpoint, params):
 def check_response_content(response, endpoint):
     """
     Функция проверяет структуру ответа API-сервиса на корректность 
-    и логирует все ошибки.
+    и при проблемах - поднимает исключения.
     """
     logger.info('Начало проверки корректности структуры ответа API.')
     if not isinstance(response, dict):
@@ -208,11 +208,26 @@ def check_response_content(response, endpoint):
             f'Значение data ответа API c эндпоинта: {endpoint} '
             f'пришел не в виде словаря.'
         )
-    if not data or meta:
-        raise ResponseEmptyFail(
-            f'Пришел пустой ответ API c эндпоинта: {endpoint}.'
-        )
     return response
+
+
+def check_empty_response(response, endpoint):
+    """
+    Функция проверяет все ответы API-сервисов на пустые значения для ключей
+    'data' и 'meta'. При отсутствии значения 'meta' поднимает исключение.
+    """
+    logger.info(
+        'Начало проверки ответа API на пустые значения ключей "data", "meta".'
+    )
+    data = response.get('data')
+    meta = response.get('meta')
+    if meta:
+        if data:
+            return True
+        return False
+    raise ResponseEmptyFail(
+        f'Пришел ответ API c эндпоинта: {endpoint} без "meta".'
+    )
 
 
 def get_head_page(update, context, start=True):
