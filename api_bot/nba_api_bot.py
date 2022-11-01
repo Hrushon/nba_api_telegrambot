@@ -19,8 +19,10 @@ from exceptions import (
     SendMessageFail
 )
 from models import (
-    game_view, player, team_min,
-    statistics_per_season, statistics_per_game
+    game_view, player,
+    team_min,
+    statistics_per_season,
+    statistics_per_game
 )
 from validator import validator
 
@@ -46,8 +48,6 @@ formatter = logging.Formatter(
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
-updater = Updater(token=BOT_TOKEN)
-
 cache_dict = {}
 
 
@@ -68,7 +68,10 @@ def check_tokens():
 
 
 def send_error_message(update, context):
-    """Логирует ошибки и отправляет сообщение администратору в Телеграм."""
+    """
+    Логирует ошибки и отправляет сообщение администратору в Телеграм. 
+    Пользователя перенаправляет на 'главную страницу'.
+    """
     text = (
         f'Сбой при работе программы:\n{context.error}\n'
         f'Пользователь: {update.message.chat.first_name}\n'
@@ -84,23 +87,20 @@ def send_error_message(update, context):
         )
     logger.info('Отправлено сообщение администратору об ошибке.')
 
-    send_text_message(
-        context=context,
-        chat_id=update.effective_chat.id,
-        text="Возникла непредвиденная ошибка. Мы уже разбираемся.",
-        parse_mode=None
-        )
-    logger.info('Отправлено сообщение пользователю об ошибке.')
+    text = "Возникла непредвиденная ошибка. Мы уже разбираемся."
+    logger.info('Вынужденный редирект пользователя на главную страницу.')
+
+    return get_head_page(update, context, False, text=text)
 
 
 def check_answer(update, context):
     """
-    В зависимости от сообщения пользователя возвращает функцию обработчик.
-    Если не выбран ни один обработчик сообщения - возвращает начальное меню.
+    В зависимости от сообщения пользователя возвращает функцию обратного ответа.
+    Если не выбран ни одна функция - возвращает начальное меню.
     """
+    logger.debug('Начало работы функции %s.', check_answer.__name__)
     text = update.message.text
     if text == 'В начало':
-        context.user_data.clear()
         return get_head_page(update, context, False)
     if text == 'Назад':
         return back_to_the_future(update, context)
@@ -133,7 +133,7 @@ def send_text_message(
     через эту функцию. Перехватывает и логирует возникающие при отправке 
     ошибки.
     """
-    logger.info('Начало отправки сообщения ботом.')
+    logger.debug('Начало отправки текстового сообщения ботом.')
 
     try:
         context.bot.send_message(
@@ -147,7 +147,7 @@ def send_text_message(
             f'Сбой при отправке текстового сообщения в Телеграмм.\n{error}'
         )
     else:
-        logger.info('Бот отправил сообщение: %s', text)
+        logger.debug('Бот отправил текстовое сообщение: %s', text)
 
 
 def send_photo_message(
@@ -158,7 +158,7 @@ def send_photo_message(
     через эту функцию. Перехватывает и логирует возникающие при отправке 
     ошибки.
     """
-    logger.info('Начало отправки сообщения ботом.')
+    logger.debug('Начало отправки сообщения с фотографией ботом.')
 
     try:
         context.bot.send_photo(
@@ -173,7 +173,7 @@ def send_photo_message(
             f'Сбой при отправке сообщения с фото в Телеграмм.\n{error}'
         )
     else:
-        logger.info('Бот отправил сообщение: \n%s\n$s', photo, caption)
+        logger.debug('Бот отправил сообщение с фото: \n%s\n$s', photo, caption)
 
 
 def check_api_service(endpoint, params):
@@ -182,7 +182,7 @@ def check_api_service(endpoint, params):
     Функция проверяет HTTP-статус полученного ответа от API-сервиса, а также 
     перехватывает и логирует все ошибки при отправке запросов.
     """
-    logger.info('Начало проверки корректности запроса к API.')
+    logger.debug('Начало работы функции %s.', check_answer.__name__)
     try:
         response = requests.get(endpoint, params=params)
     except Exception as error:
@@ -208,7 +208,7 @@ def check_response_content(response, endpoint):
     Функция проверяет структуру ответа API-сервиса на корректность 
     и при проблемах - поднимает исключения.
     """
-    logger.info('Начало проверки корректности структуры ответа API.')
+    logger.debug('Начало работы функции %s.', check_answer.__name__)
     if not isinstance(response, dict):
         raise TypeError(
             f'Ответ API c эндпоинта: {endpoint} пришел не в виде словаря.'
@@ -239,9 +239,7 @@ def check_not_empty_response(response, endpoint):
     Функция проверяет все ответы API-сервисов на пустые значения для ключей
     'data' и 'meta'. При отсутствии значения 'meta' поднимает исключение.
     """
-    logger.info(
-        'Начало проверки ответа API на пустые значения ключей "data", "meta".'
-    )
+    logger.debug('Начало работы функции %s.', check_answer.__name__)
     data = response.get('data')
     meta = response.get('meta')
     if meta:
@@ -253,18 +251,25 @@ def check_not_empty_response(response, endpoint):
     )
 
 
-def get_head_page(update, context, start=True):
+def get_head_page(update, context, start=True, text=None):
     """
     Функция возвращает главную страницу (начальное меню).
     Немного видоизменяется в зависимости от типа сообщения.
     По умолчанию возвращает ответ на команду /start с текстом приветствия.
-    При вызове от MessageHandler получает аргумент start=False.
+    При вызове от MessageHandler получает аргумент start=False. 
+    В случае появления ошибок в работе программы получает аргументы от 
+    хэндлера ошибок и перенаправляет ползователя на главную страницу.
+    Всегда 'чистит' словарь user_data пользователя.
     """
+    logger.debug('Начало работы функции %s.', check_answer.__name__)
+    context.user_data.clear()
     chat = update.effective_chat
     name = update.message.chat.first_name
-    text = f'Чем я могу Вам помочь, {name}?'
+    if not text:
+        text = f'Чем я могу Вам помочь, {name}?'
     if start:
         text = f'Спасибо, что включили меня, {name}!'
+
     send_text_message(
         context=context,
         chat_id=chat.id,
@@ -285,6 +290,7 @@ def back_to_the_future(update, context):
     этапу выбора ответа.
     В иных случаях вызывает функцию возврата главного меню.
     """
+    logger.debug('Начало работы функции %s.', check_answer.__name__)
     back_func_choice = {
         'games': preview_games,
         'statistics': preview_statistics
@@ -316,6 +322,7 @@ def search_player(update, context):
     (но сервис API по поиску фотографий что-то стал отваливаться) или 
     без неё и предлагает ознакомиться со статистикой игрока.
     """
+    logger.debug('Начало работы функции %s.', check_answer.__name__)
     endpoint = f'{ENDPOINT}players'
     chat = update.effective_chat
     answer = update.message.text
@@ -409,6 +416,7 @@ def view_teams(update, context):
     Список в 'кэше' обновляется каждый месяц. 
     JSON-ответ обрабатывает с помощью функции team_min() модуля models.
     """
+    logger.debug('Начало работы функции %s.', check_answer.__name__)
     endpoint = f'{ENDPOINT}teams'
     chat = update.effective_chat
     date = datetime.now()
@@ -452,6 +460,7 @@ def preview_statistics(update, context):
     модуля constants. Ответы пользователя на уточняющие вопросы проходят 
     валидацию в функции validator().
     """
+    logger.debug('Начало работы функции %s.', check_answer.__name__)
     chat = update.effective_chat
     answer = update.message.text
     flag_dict = context.user_data.get('statistics')
@@ -510,6 +519,7 @@ def view_statistics(update, context):
     Для этого сохраняет в словарь user_data объекта context две 
     записи, содержащие эндпоинт и текущую страницу.
     """
+    logger.debug('Начало работы функции %s.', check_answer.__name__)
     endpoint = f'{ENDPOINT}stats'
     chat = update.effective_chat
     button = [['В начало']]
@@ -582,6 +592,7 @@ def view_season_statistics(update, context):
     JSON-ответ обрабатывает с помощью функции statistics_per_season() 
     модуля models.
     """
+    logger.debug('Начало работы функции %s.', check_answer.__name__)
     endpoint = f'{ENDPOINT}season_averages'
     chat = update.effective_chat
     button = [['В начало']]
@@ -644,6 +655,7 @@ def preview_games(update, context):
     Ответы пользователя на уточняющие вопросы проходят валидацию 
     в функции validator().
     """
+    logger.debug('Начало работы функции %s.', check_answer.__name__)
     chat = update.effective_chat
     answer = update.message.text
     flag_dict = context.user_data.get('games')
@@ -697,6 +709,7 @@ def view_games(update, context):
     Для этого сохраняет в словарь user_data объекта context две 
     записи, содержащие эндпоинт и текущую страницу.
     """
+    logger.debug('Начало работы функции %s.', check_answer.__name__)
     endpoint = f'{ENDPOINT}games'
     chat = update.effective_chat
     button = [['В начало']]
@@ -765,6 +778,7 @@ def flipp_pages(update, context):
     или 'список игр' - для вызова необходимой функции обработки 
     и представления полученной информации.
     """
+    logger.debug('Начало работы функции %s.', check_answer.__name__)
     chat = update.effective_chat
     answer = update.message.text
     button = [['Предыдущие игры'], ['Следующие игры'], ['В начало']]
@@ -819,8 +833,20 @@ def flipp_pages(update, context):
     )
 
 
-updater.dispatcher.add_handler(CommandHandler('start', get_head_page))
-updater.dispatcher.add_handler(MessageHandler(Filters.all, check_answer))
-updater.dispatcher.add_error_handler(send_error_message)
-updater.start_polling(poll_interval=5.0)
-updater.idle()
+def main():
+    logger.debug('Начало работы функции %s.', check_answer.__name__)
+    if not check_tokens():
+        raise SystemExit
+
+    updater = Updater(token=BOT_TOKEN)
+
+    updater.dispatcher.add_handler(CommandHandler('start', get_head_page))
+    updater.dispatcher.add_handler(MessageHandler(Filters.all, check_answer))
+    updater.dispatcher.add_error_handler(send_error_message)
+
+    updater.start_polling(poll_interval=5.0)
+    updater.idle()
+
+
+if __name__ == '__main__':
+    main()
