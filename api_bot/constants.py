@@ -61,6 +61,8 @@ PLAYERS_ROLES = {
 
 POUND_COEFF = 0.45
 
+TIME_OUT = 60
+
 VALID_ETALONS = { 
     'games': {
         1: '^([1-9]|[12][0-9]|3[0])$',

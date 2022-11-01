@@ -22,7 +22,7 @@ def validator(update, context):
                 if not user_data[3]:
                     etalon = choice_dict[idx + 1]
 
-    for item in ('average', 'player'):
+    for item in ('player', 'average'):
         if context.user_data.get(item) is not None:
             etalon = VALID_ETALONS[item] 
 

@@ -5,13 +5,14 @@ import sys
 
 import requests
 import telegram
+import time
 from http import HTTPStatus
 from datetime import datetime
 
 from dotenv import load_dotenv
 from telegram.ext import CommandHandler, Filters, MessageHandler, Updater
 
-from constants import VIEW_GAMES, VIEW_STATIX
+from constants import TIME_OUT, VIEW_GAMES, VIEW_STATIX
 from exceptions import (
     ApiRequestTrouble,
     ApiStatusTrouble,
@@ -32,7 +33,7 @@ load_dotenv()
 ENDPOINT = 'https://www.balldontlie.io/api/v1/'
 ENDPOINT_PHOTO_SEARCH = 'https://imsea.herokuapp.com/api/1'
 
-ADMIN_ID = os.getenv('ADMIN_ID') # Айди аккаунта в телеграм
+ADMIN_ID = os.getenv('ADMIN_ID') # Айди аккаунта админа в телеграм
 BOT_TOKEN = os.getenv('BOT_TOKEN') # Токен бота в телеграм
 TOKENS_NAME = {
     ADMIN_ID: 'ID администратора',
@@ -53,7 +54,7 @@ cache_dict = {}
 
 def check_tokens():
     """Проверяет наличие токена и ID чата администратора."""
-    if all(ADMIN_ID, BOT_TOKEN):
+    if (ADMIN_ID and BOT_TOKEN):
         return True
 
     for i in (ADMIN_ID, BOT_TOKEN):
@@ -79,13 +80,23 @@ def send_error_message(update, context):
         f'Данные: {context.user_data.items()}'
     )
     logger.error(text)
-    send_text_message(
-        context=context,
-        chat_id=ADMIN_ID,
-        text=text,
-        parse_mode=None
-        )
-    logger.info('Отправлено сообщение администратору об ошибке.')
+
+    if context.bot_data.get('errors') is None:
+        context.bot_data['errors'] = dict()
+    
+    date = datetime.now().date()
+    if context.bot_data['errors'].get(date) is None:
+        context.bot_data['errors'][date] = list()
+
+    if context.error not in context.bot_data['errors'][date]:
+        send_text_message(
+            context=context,
+            chat_id=ADMIN_ID,
+            text=text,
+            parse_mode=None
+            )
+        logger.info('Отправлено сообщение администратору об ошибке.')
+        context.bot_data['errors'][date].append(context.error)
 
     text = "Возникла непредвиденная ошибка. Мы уже разбираемся."
     logger.info('Вынужденный редирект пользователя на главную страницу.')
@@ -176,15 +187,15 @@ def send_photo_message(
         logger.debug('Бот отправил сообщение с фото: \n%s\n$s', photo, caption)
 
 
-def check_api_service(endpoint, params):
+def check_api_service(endpoint, params=None):
     """
     Посредством этой функции производятся все запросы к внешним сервисам API.
     Функция проверяет HTTP-статус полученного ответа от API-сервиса, а также 
     перехватывает и логирует все ошибки при отправке запросов.
     """
-    logger.debug('Начало работы функции %s.', check_answer.__name__)
+    logger.debug('Начало работы функции %s.', check_api_service.__name__)
     try:
-        response = requests.get(endpoint, params=params)
+        response = requests.get(endpoint, params=params, timeout=6)
     except Exception as error:
         raise ApiRequestTrouble(
             f'Сбой при запросе к эндпоинту {endpoint}.\n'
@@ -192,28 +203,36 @@ def check_api_service(endpoint, params):
             f'Ошибка: {error}.'
         )
     else:
-        if response.status_code != HTTPStatus.OK:
-            raise ApiStatusTrouble(
-                f'Сбой при запросе к эндпоинту {endpoint}.\n'
-                f'Код ответа API: {response.status_code}.\n'
-                f'Параметры запроса: {params}.'
-            )
-        endpoint = response.url
-        response = response.json()
-        return response, endpoint
+        if response.status_code == HTTPStatus.OK:
+            endpoint = response.url
+            logger.debug('Запрос ушел на эндпоинт %s.', endpoint)
+            response = response.json()
+            return response, endpoint
+        if response.status_code == HTTPStatus.TOO_MANY_REQUESTS:
+            logger.warning('Отправлено больше 60 запросов в минуту')
+            time.sleep(TIME_OUT)
+        raise ApiStatusTrouble(
+            f'Сбой при запросе к эндпоинту {endpoint}.\n'
+            f'Код ответа API: {response.status_code}.\n'
+            f'Параметры запроса: {params}.'
+        )
 
 
-def check_response_content(response, endpoint):
+def check_response_content(response, endpoint, meta_field=True):
     """
     Функция проверяет структуру ответа API-сервиса на корректность 
     и при проблемах - поднимает исключения.
     """
-    logger.debug('Начало работы функции %s.', check_answer.__name__)
+    logger.debug('Начало работы функции %s.', check_response_content.__name__)
+    fields = ('data', 'meta')
+    if not meta_field:
+        fields = ('data', )
+
     if not isinstance(response, dict):
         raise TypeError(
             f'Ответ API c эндпоинта: {endpoint} пришел не в виде словаря.'
         )
-    for item in ('data', 'meta'):
+    for item in fields:
         if item not in response:
             raise KeyError(
                 f'Отсутствует ключ {item} в ответе API c эндпоинта: '
@@ -223,31 +242,36 @@ def check_response_content(response, endpoint):
     if not isinstance(data, list):
         raise TypeError(
             f'Значение data ответа API c эндпоинта: {endpoint} '
-            f'пришел не в виде списка.'
+            f'пришло не в виде списка.'
         )
-    meta = response.get('meta')
-    if not isinstance(meta, dict):
-        raise TypeError(
-            f'Значение data ответа API c эндпоинта: {endpoint} '
-            f'пришел не в виде словаря.'
-        )
+    if meta_field:
+        meta = response.get('meta')
+        if not isinstance(meta, dict):
+            raise TypeError(
+                f'Значение meta ответа API c эндпоинта: {endpoint} '
+                f'пришло не в виде словаря.'
+            )
     return response
 
 
-def check_not_empty_response(response, endpoint):
+def check_not_empty_response(response, endpoint, meta_field=True):
     """
     Функция проверяет все ответы API-сервисов на пустые значения для ключей
     'data' и 'meta'. При отсутствии значения 'meta' поднимает исключение.
     """
-    logger.debug('Начало работы функции %s.', check_answer.__name__)
+    logger.debug(
+        'Начало работы функции %s.', check_not_empty_response.__name__
+    )
     data = response.get('data')
     meta = response.get('meta')
+    if not meta_field:
+        meta = True
     if meta:
         if data:
             return True
         return False
     raise ResponseEmptyFail(
-        f'Пришел ответ API c эндпоинта: {endpoint} без "meta".'
+        f'Ответ API c эндпоинта: {endpoint} пришел без данных в "meta".'
     )
 
 
@@ -261,7 +285,7 @@ def get_head_page(update, context, start=True, text=None):
     хэндлера ошибок и перенаправляет ползователя на главную страницу.
     Всегда 'чистит' словарь user_data пользователя.
     """
-    logger.debug('Начало работы функции %s.', check_answer.__name__)
+    logger.debug('Начало работы функции %s.', get_head_page.__name__)
     context.user_data.clear()
     chat = update.effective_chat
     name = update.message.chat.first_name
@@ -290,7 +314,7 @@ def back_to_the_future(update, context):
     этапу выбора ответа.
     В иных случаях вызывает функцию возврата главного меню.
     """
-    logger.debug('Начало работы функции %s.', check_answer.__name__)
+    logger.debug('Начало работы функции %s.', back_to_the_future.__name__)
     back_func_choice = {
         'games': preview_games,
         'statistics': preview_statistics
@@ -322,13 +346,13 @@ def search_player(update, context):
     (но сервис API по поиску фотографий что-то стал отваливаться) или 
     без неё и предлагает ознакомиться со статистикой игрока.
     """
-    logger.debug('Начало работы функции %s.', check_answer.__name__)
+    logger.debug('Начало работы функции %s.', search_player.__name__)
     endpoint = f'{ENDPOINT}players'
     chat = update.effective_chat
     answer = update.message.text
     flag_dict = context.user_data.get('player')
     text = (
-        'Введите имя игрока, которого Вы хотите найти. '
+        'Введите имя игрока, которого Вы хотите найти.\n'
         '*Запрос должен быть на латинице*.'
     )
     button = [['В начало']]
@@ -381,7 +405,7 @@ def search_player(update, context):
                 params = {'q': info_for_photo}
                 try:
                     response, endpoint = check_api_service(endpoint, params)
-                    photo = photo.json()['results'][0]
+                    photo = response.json()['results'][0]
                 except Exception as error:
                     logger.error(
                         'Cбой сервиса поиска фотографии '
@@ -416,7 +440,7 @@ def view_teams(update, context):
     Список в 'кэше' обновляется каждый месяц. 
     JSON-ответ обрабатывает с помощью функции team_min() модуля models.
     """
-    logger.debug('Начало работы функции %s.', check_answer.__name__)
+    logger.debug('Начало работы функции %s.', view_teams.__name__)
     endpoint = f'{ENDPOINT}teams'
     chat = update.effective_chat
     date = datetime.now()
@@ -460,7 +484,7 @@ def preview_statistics(update, context):
     модуля constants. Ответы пользователя на уточняющие вопросы проходят 
     валидацию в функции validator().
     """
-    logger.debug('Начало работы функции %s.', check_answer.__name__)
+    logger.debug('Начало работы функции %s.', preview_statistics.__name__)
     chat = update.effective_chat
     answer = update.message.text
     flag_dict = context.user_data.get('statistics')
@@ -482,7 +506,7 @@ def preview_statistics(update, context):
             if text is None:
                 context.user_data.get('statistics').append(True)
         elif answer == VIEW_STATIX.get(count).get('answer')[1]:
-            context.user_data.get('statistics').append(False)
+            context.user_data.get('statistics').append(None)
         elif validator(update, context):
             context.user_data.get('statistics').append(answer)
             if len(context.user_data.get('statistics')) in (1, 3, 5):
@@ -519,7 +543,7 @@ def view_statistics(update, context):
     Для этого сохраняет в словарь user_data объекта context две 
     записи, содержащие эндпоинт и текущую страницу.
     """
-    logger.debug('Начало работы функции %s.', check_answer.__name__)
+    logger.debug('Начало работы функции %s.', view_statistics.__name__)
     endpoint = f'{ENDPOINT}stats'
     chat = update.effective_chat
     button = [['В начало']]
@@ -530,16 +554,16 @@ def view_statistics(update, context):
     game_id, playoff, season = user_data[0], user_data[1], user_data[2]
     params ={
         'per_page': 5,
-        'player_ids': player_id,
+        'player_ids[]': player_id,
         'postseason': playoff,
-        'game_ids': game_id,
-        'seasons': season
+        'game_ids[]': game_id,
+        'seasons[]': season
     }
 
     if not isinstance(season, str):
         if user_data[3]:
             date = user_data[4]
-            params.update({'dates': date})
+            params.update({'dates[]': date})
         else:
             user_data = (user_data[4]).split(' ')
             start_date, end_date = *user_data,
@@ -592,7 +616,7 @@ def view_season_statistics(update, context):
     JSON-ответ обрабатывает с помощью функции statistics_per_season() 
     модуля models.
     """
-    logger.debug('Начало работы функции %s.', check_answer.__name__)
+    logger.debug('Начало работы функции %s.', view_season_statistics.__name__)
     endpoint = f'{ENDPOINT}season_averages'
     chat = update.effective_chat
     button = [['В начало']]
@@ -608,7 +632,7 @@ def view_season_statistics(update, context):
     player = context.user_data.get('player')
     player_id, first_name, last_name = player[0], player[1], player[2]
 
-    if flag_dict is None and answer == 'Выбрать другой сезон':
+    if flag_dict is None or answer == 'Выбрать другой сезон':
         context.user_data['average'] = []
     else:
         if not validator(update, context):
@@ -616,11 +640,11 @@ def view_season_statistics(update, context):
         else:    
             params = {
                 'season': answer,
-                'player_ids': player_id
+                'player_ids[]': player_id
             }
             response, endpoint = check_api_service(endpoint, params)
-            response = check_response_content(response, endpoint)
-            if not check_not_empty_response(response, endpoint):
+            response = check_response_content(response, endpoint, False)
+            if not check_not_empty_response(response, endpoint, False):
                 text='К сожалению ничего не найдено'
             else:
                 response_list = response.get('data')
@@ -655,7 +679,7 @@ def preview_games(update, context):
     Ответы пользователя на уточняющие вопросы проходят валидацию 
     в функции validator().
     """
-    logger.debug('Начало работы функции %s.', check_answer.__name__)
+    logger.debug('Начало работы функции %s.', preview_games.__name__)
     chat = update.effective_chat
     answer = update.message.text
     flag_dict = context.user_data.get('games')
@@ -674,7 +698,7 @@ def preview_games(update, context):
             if text is None:
                 context.user_data.get('games').append(True)
         elif answer == VIEW_GAMES.get(count).get('answer')[1]:
-            context.user_data.get('games').append(False)
+            context.user_data.get('games').append(None)
         elif validator(update, context):
             context.user_data.get('games').append(answer)
             if len(context.user_data.get('games')) in (3, 5):
@@ -709,7 +733,7 @@ def view_games(update, context):
     Для этого сохраняет в словарь user_data объекта context две 
     записи, содержащие эндпоинт и текущую страницу.
     """
-    logger.debug('Начало работы функции %s.', check_answer.__name__)
+    logger.debug('Начало работы функции %s.', view_games.__name__)
     endpoint = f'{ENDPOINT}games'
     chat = update.effective_chat
     button = [['В начало']]
@@ -719,8 +743,8 @@ def view_games(update, context):
     params ={
         'per_page': 5,
         'postseason': playoff,
-        'team_ids': team_id,
-        'seasons': season
+        'team_ids[]': team_id,
+        'seasons[]': season
     }
 
     if not isinstance(season, str):
@@ -733,7 +757,7 @@ def view_games(update, context):
             params.update(pairs)
         else:
             date = user_data[4]
-            params.update({'dates': date})
+            params.update({'dates[]': date})
 
     response, final_url = check_api_service(endpoint, params)
     response = check_response_content(response, endpoint)
@@ -778,7 +802,7 @@ def flipp_pages(update, context):
     или 'список игр' - для вызова необходимой функции обработки 
     и представления полученной информации.
     """
-    logger.debug('Начало работы функции %s.', check_answer.__name__)
+    logger.debug('Начало работы функции %s.', flipp_pages.__name__)
     chat = update.effective_chat
     answer = update.message.text
     button = [['Предыдущие игры'], ['Следующие игры'], ['В начало']]
@@ -834,7 +858,7 @@ def flipp_pages(update, context):
 
 
 def main():
-    logger.debug('Начало работы функции %s.', check_answer.__name__)
+    logger.debug('Начало работы функции %s.', main.__name__)
     if not check_tokens():
         raise SystemExit
 
@@ -844,7 +868,7 @@ def main():
     updater.dispatcher.add_handler(MessageHandler(Filters.all, check_answer))
     updater.dispatcher.add_error_handler(send_error_message)
 
-    updater.start_polling(poll_interval=5.0)
+    updater.start_polling(poll_interval=4.0)
     updater.idle()
 
 
